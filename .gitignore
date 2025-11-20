@@ -1,0 +1,17 @@
+# Python venvs
+.venv/
+.rvenv/
+
+# Python caches
+__pycache__/
+*.pyc
+
+# Data and artifacts (keep repo light)
+data/
+artifacts/
+mlruns/
+mlflow.db
+
+# OS/editor stuff
+.DS_Store
+.vscode/
