@@ -10,7 +10,7 @@ The project takes hourly/daily air-quality data (IQA / pollutants), trains forec
 
 ## 1. Problem & Goals
 
-**Problem.**  
+**Problem.**
 Given historical air-quality measurements (daily IQA / pollutant values for Montréal), we want to:
 
 - Forecast IQA/pollutant for the next *N* days/hours
@@ -25,7 +25,7 @@ This aligns with the MLOps Zoomcamp project rubric: experiment tracking, model r
 
 ## 2. Tech Stack
 
-- **Language:** Python 3.12  
+- **Language:** Python 3.12
 - **Data / ML:** pandas, scikit-learn, Prophet, PyTorch (LSTM)
 - **Experiment Tracking & Registry:** MLflow (SQLite backend)
 - **Orchestration:** Prefect flows (`orchestration/flow.py`)
