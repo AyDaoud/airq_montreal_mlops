@@ -30,7 +30,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # 👇 create a LOWERCASE image id for GHCR
+      # build & push image: ghcr.io/<your-user>/airq-api:latest
       - name: Prepare image name (lowercase owner)
         run: |
           IMAGE_ID=${GITHUB_REPOSITORY_OWNER,,}/${IMAGE_NAME}
