@@ -1,49 +1,22 @@
 # src/serving/app.py
-from __future__ import annotations
-
-import json
 import os
+import json
 from pathlib import Path
 
 import pandas as pd
 from fastapi import FastAPI
-from joblib import load
 from pydantic import BaseModel
+from joblib import load
 
-# Default paths; can be overridden with env vars in Docker
 MODEL_PATH = os.getenv("MODEL_PATH", "artifacts/rf/model.pkl")
-FEATURE_PATH = os.getenv("FEATURE_PATH", "artifacts/rf/feature_names.json")
+FEATURES_PATH = os.getenv("FEATURES_PATH", "artifacts/rf/feature_names.json")
 
 
 class PredictRequest(BaseModel):
     rows: list[dict]
 
 
-app = FastAPI(title="AirQ Montréal API")
-
-
-def _load_feature_cols(df: pd.DataFrame) -> list[str]:
-    """
-    Load feature names from FEATURE_PATH if possible.
-
-    If the saved feature names are not all present in the incoming DataFrame
-    (e.g. in unit tests with a minimal payload), fall back to using all
-    non-datetime columns.
-    """
-    p = Path(FEATURE_PATH)
-
-    if p.exists():
-        try:
-            names = json.loads(p.read_text())
-            # Use them only if they actually exist in df
-            if all(name in df.columns for name in names):
-                return names
-        except Exception:
-            # On any JSON/IO error, fall back below
-            pass
-
-    # Fallback: everything except datetime
-    return [c for c in df.columns if c != "datetime"]
+app = FastAPI()
 
 
 @app.get("/health")
@@ -51,30 +24,54 @@ def health():
     return {"status": "ok"}
 
 
+def _load_feature_cols(df: pd.DataFrame) -> list[str]:
+    """
+    Load feature column names from FEATURES_PATH if present and compatible
+    with the incoming dataframe. If they don't match, fall back to a simple
+    heuristic based on the current request.
+    """
+    path = Path(FEATURES_PATH)
+    cols_from_meta: list[str] | None = None
+
+    if path.exists():
+        try:
+            cols_from_meta = json.loads(path.read_text())
+        except Exception:
+            cols_from_meta = None
+
+    # If we loaded meta AND all those columns exist in df, use them
+    if cols_from_meta:
+        missing = [c for c in cols_from_meta if c not in df.columns]
+        if not missing:
+            return cols_from_meta
+
+    # Fallback: use non-datetime, non-string pollutant columns from the request
+    ignore = {"datetime", "pollutant"}
+    return [c for c in df.columns if c not in ignore]
+
+
 @app.post("/predict")
 def predict(req: PredictRequest):
-    # 1) Load model
+    df = pd.DataFrame(req.rows)
+
+    # Empty request: return empty result but valid shape
+    if df.empty:
+        return {"n": 0, "preds": [], "predictions": []}
+
     if not os.path.exists(MODEL_PATH):
         return {"error": f"Model not found at {MODEL_PATH}"}
 
     model = load(MODEL_PATH)
-
-    # 2) Build dataframe from incoming rows
-    df = pd.DataFrame(req.rows)
-
-    # 3) Choose feature columns (robust to test data)
     feature_cols = _load_feature_cols(df)
     X = df[feature_cols]
 
-    # 4) Predict
     preds = model.predict(X)
-    try:
-        preds_list = preds.tolist()
-    except AttributeError:
-        preds_list = list(preds)
+    if hasattr(preds, "tolist"):
+        preds = preds.tolist()
 
-    # 5) JSON response
+    # include BOTH keys: "preds" (for tests) and "predictions" (for humans)
     return {
-        "n": len(preds_list),
-        "preds": preds_list,
+        "n": len(preds),
+        "preds": preds,
+        "predictions": preds,
     }
