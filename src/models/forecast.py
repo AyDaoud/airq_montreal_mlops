@@ -1,9 +1,15 @@
 # src/models/forecast.py
 from __future__ import annotations
-import argparse, json, re
+import argparse
+import json
+import re
+
 from collections import deque
 from pathlib import Path
-from typing import List, Dict, Optional, Tuple
+from typing import List
+from typing import Dict
+from typing import Optional
+from typing import Tuple
 
 import numpy as np
 import pandas as pd
@@ -11,35 +17,40 @@ import joblib
 import mlflow
 
 # ---------- artifact locations ----------
-ART_DIR         = Path("artifacts")
-RF_MODEL_PATH   = ART_DIR / "rf"      / "model.pkl"
-RF_FEATS_PATH   = ART_DIR / "rf"      / "feature_names.json"
-PROPHET_PATH    = ART_DIR / "prophet" / "prophet.pkl"
-LSTM_STATE_PATH = ART_DIR / "lstm"    / "lstm.pt"
-LSTM_META_PATH  = ART_DIR / "lstm"    / "model_meta.json"
+ART_DIR = Path("artifacts")
+RF_MODEL_PATH = ART_DIR / "rf" / "model.pkl"
+RF_FEATS_PATH = ART_DIR / "rf" / "feature_names.json"
+PROPHET_PATH = ART_DIR / "prophet" / "prophet.pkl"
+LSTM_STATE_PATH = ART_DIR / "lstm" / "lstm.pt"
+LSTM_META_PATH = ART_DIR / "lstm" / "model_meta.json"
+
 
 # ---------- small helpers ----------
 def _load_rf():
     if not RF_MODEL_PATH.exists():
         raise FileNotFoundError(f"RF model not found at {RF_MODEL_PATH.resolve()}")
     if not RF_FEATS_PATH.exists():
-        raise FileNotFoundError(f"RF feature names not found at {RF_FEATS_PATH.resolve()}")
+        raise FileNotFoundError(
+            f"RF feature names not found at {RF_FEATS_PATH.resolve()}"
+        )
     return joblib.load(RF_MODEL_PATH), json.loads(RF_FEATS_PATH.read_text())
 
 
 def _infer_lags(feature_names: List[str]) -> List[int]:
-    return sorted({
-        int(m.group(1))
-        for c in feature_names
-        for m in [re.fullmatch(r"lag_(\d+)", c)]
-        if m
-    })
+    return sorted(
+        {
+            int(m.group(1))
+            for c in feature_names
+            for m in [re.fullmatch(r"lag_(\d+)", c)]
+            if m
+        }
+    )
 
 
 def _cal_feats(ts: pd.Timestamp) -> Dict[str, float]:
     return {
-        "hour":  float(ts.hour),
-        "dow":   float(ts.dayofweek),
+        "hour": float(ts.hour),
+        "dow": float(ts.dayofweek),
         "month": float(ts.month),
     }
 
@@ -59,10 +70,12 @@ def _update_roll(history: deque, window: int) -> float:
     return float(np.mean(prev)) if len(prev) else float("nan")
 
 
-def _find_col(df: pd.DataFrame,
-              prefer: Optional[str],
-              aliases: List[str],
-              contains: List[str] = []) -> Optional[str]:
+def _find_col(
+    df: pd.DataFrame,
+    prefer: Optional[str],
+    aliases: List[str],
+    contains: List[str] = [],
+) -> Optional[str]:
     cols = list(df.columns)
     if prefer and prefer in cols:
         return prefer
@@ -91,12 +104,17 @@ def _load_daily(paths: List[Path]) -> pd.DataFrame:
         raise FileNotFoundError("No daily IQA parquet found.")
     df = pd.concat(frames, ignore_index=True)
 
-    dt = _find_col(df, None, ["datetime", "date", "timestamp"], contains=["date", "time"])
+    dt = _find_col(
+        df, None, ["datetime", "date", "timestamp"], contains=["date", "time"]
+    )
     if dt and dt != "datetime":
         df = df.rename(columns={dt: "datetime"})
-    v = _find_col(df, None,
-                  ["value", "iqa", "Indice", "aqi", "valeur"],
-                  contains=["iqa", "indice", "value", "valeur", "aqi"])
+    v = _find_col(
+        df,
+        None,
+        ["value", "iqa", "Indice", "aqi", "valeur"],
+        contains=["iqa", "indice", "value", "valeur", "aqi"],
+    )
     if v and v != "value":
         df = df.rename(columns={v: "value"})
 
@@ -111,13 +129,22 @@ def _detect_hourly_schema(df: pd.DataFrame) -> Tuple[str, Optional[str], List[st
     Return: datetime_col, station_col (or None), pollutant_value_cols (wide-format).
     If 'value' already exists, pollutant_value_cols = [] (already long).
     """
-    dtcol = _find_col(df, None,
-                      ["datetime", "date_time", "timestamp"],
-                      contains=["date", "time"])
-    stcol = _find_col(df, None,
-                      ["station_name", "station", "nom_station",
-                       "id_station", "station_id", "code_station"],
-                      contains=["station"])
+    dtcol = _find_col(
+        df, None, ["datetime", "date_time", "timestamp"], contains=["date", "time"]
+    )
+    stcol = _find_col(
+        df,
+        None,
+        [
+            "station_name",
+            "station",
+            "nom_station",
+            "id_station",
+            "station_id",
+            "code_station",
+        ],
+        contains=["station"],
+    )
     if dtcol is None:
         raise KeyError("No datetime-like column found in hourly parquet.")
 
@@ -133,15 +160,25 @@ def _detect_hourly_schema(df: pd.DataFrame) -> Tuple[str, Optional[str], List[st
         if c in exclude:
             continue
         cl = str(c).lower()
-        if cl in ["no_poste", "poste", "site", "station", "nom_station",
-                  "id_station", "station_id", "code_station"]:
+        if cl in [
+            "no_poste",
+            "poste",
+            "site",
+            "station",
+            "nom_station",
+            "id_station",
+            "station_id",
+            "code_station",
+        ]:
             continue
         s = pd.to_numeric(df[c], errors="coerce")
         if s.notna().sum() > 0:
             num_like.append(c)
 
     if not num_like:
-        raise KeyError("Could not infer pollutant columns from hourly parquet (no numeric-like columns).")
+        raise KeyError(
+            "Could not infer pollutant columns from hourly parquet (no numeric-like columns)."
+        )
 
     return dtcol, stcol, num_like
 
@@ -174,7 +211,7 @@ def _load_hourly(paths: List[Path], args) -> pd.DataFrame:
             id_vars=[c for c in ["datetime", "station_name"] if c in df.columns],
             value_vars=pollutant_cols,
             var_name="pollutant",
-            value_name="value"
+            value_name="value",
         )
 
     df["datetime"] = pd.to_datetime(df["datetime"], utc=True, errors="coerce")
@@ -194,8 +231,11 @@ def _list_stations(df: pd.DataFrame) -> List[str]:
         s = pd.concat([s, df[c].astype(str)], ignore_index=True)
     return sorted(s.dropna().unique().tolist())
 
+
 # ---------- forecasting backends ----------
-def _rf_forecast(history_df: pd.DataFrame, horizon: int, freq: str = "D") -> pd.DataFrame:
+def _rf_forecast(
+    history_df: pd.DataFrame, horizon: int, freq: str = "D"
+) -> pd.DataFrame:
     model, feature_names = _load_rf()
     lags = _infer_lags(feature_names)
     if not lags:
@@ -240,7 +280,9 @@ def _rf_forecast(history_df: pd.DataFrame, horizon: int, freq: str = "D") -> pd.
     return pd.DataFrame(out)
 
 
-def _prophet_forecast(history_df: pd.DataFrame, horizon: int, freq: str = "D") -> pd.DataFrame:
+def _prophet_forecast(
+    history_df: pd.DataFrame, horizon: int, freq: str = "D"
+) -> pd.DataFrame:
     """
     Forecast using the *saved* Prophet model in artifacts/prophet/prophet.pkl.
     No Stan optimization here – just predict.
@@ -264,9 +306,7 @@ def _prophet_forecast(history_df: pd.DataFrame, horizon: int, freq: str = "D") -
     step = "H" if freq.upper() == "H" else "D"
 
     future_index = pd.date_range(
-        last_ts + pd.tseries.frequencies.to_offset(step),
-        periods=horizon,
-        freq=step
+        last_ts + pd.tseries.frequencies.to_offset(step), periods=horizon, freq=step
     ).tz_convert(None)
 
     future = pd.DataFrame({"ds": future_index})
@@ -276,8 +316,11 @@ def _prophet_forecast(history_df: pd.DataFrame, horizon: int, freq: str = "D") -
     return fc
 
 
-def _lstm_forecast(history_df: pd.DataFrame, horizon: int, freq: str = "D") -> pd.DataFrame:
-    import torch, torch.nn as nn
+def _lstm_forecast(
+    history_df: pd.DataFrame, horizon: int, freq: str = "D"
+) -> pd.DataFrame:
+    import torch
+    import torch.nn as nn
 
     if not LSTM_STATE_PATH.exists() or not LSTM_META_PATH.exists():
         raise FileNotFoundError(
@@ -289,7 +332,9 @@ def _lstm_forecast(history_df: pd.DataFrame, horizon: int, freq: str = "D") -> p
 
     # --- handle both meta formats ---
     if "seq_len" not in meta:
-        raise KeyError(f"LSTM meta.json missing 'seq_len'. Got keys: {list(meta.keys())}")
+        raise KeyError(
+            f"LSTM meta.json missing 'seq_len'. Got keys: {list(meta.keys())}"
+        )
 
     seq_len = int(meta["seq_len"])
 
@@ -298,8 +343,12 @@ def _lstm_forecast(history_df: pd.DataFrame, horizon: int, freq: str = "D") -> p
         mu = float(meta["mean"])
         sigma = float(meta["std"])
     # Existing format from model_factory: nested under "scaler"
-    elif "scaler" in meta and isinstance(meta["scaler"], dict) \
-            and "mean" in meta["scaler"] and "std" in meta["scaler"]:
+    elif (
+        "scaler" in meta
+        and isinstance(meta["scaler"], dict)
+        and "mean" in meta["scaler"]
+        and "std" in meta["scaler"]
+    ):
         mu = float(meta["scaler"]["mean"])
         sigma = float(meta["scaler"]["std"])
     else:
@@ -315,7 +364,7 @@ def _lstm_forecast(history_df: pd.DataFrame, horizon: int, freq: str = "D") -> p
             self.fc = nn.Linear(hidden, 1)
 
         def forward(self, x):
-            out, _ = self.lstm(x)          # (B, T, H)
+            out, _ = self.lstm(x)  # (B, T, H)
             return self.fc(out[:, -1, :])  # (B, 1)
 
     # infer hidden size from the saved state
@@ -358,7 +407,9 @@ def _lstm_forecast(history_df: pd.DataFrame, horizon: int, freq: str = "D") -> p
 
 # ---------- CLI ----------
 def main():
-    p = argparse.ArgumentParser("AirQ | Forecast (Daily/Hourly) with RF / Prophet / LSTM + MLflow")
+    p = argparse.ArgumentParser(
+        "AirQ | Forecast (Daily/Hourly) with RF / Prophet / LSTM + MLflow"
+    )
     p.add_argument("--model", choices=["rf", "prophet", "lstm"], default="rf")
     p.add_argument("--freq", choices=["D", "H"], default="D")
     p.add_argument("--horizon", type=int, default=7)
@@ -392,12 +443,16 @@ def main():
         paths = [Path(p) for p in args.input_parquet]
     else:
         paths = (
-            [Path("data/interim/rsqa_2022.parquet"),
-             Path("data/interim/rsqa_2023.parquet"),
-             Path("data/interim/rsqa_2024.parquet")]
+            [
+                Path("data/interim/rsqa_2022.parquet"),
+                Path("data/interim/rsqa_2023.parquet"),
+                Path("data/interim/rsqa_2024.parquet"),
+            ]
             if args.freq == "H"
-            else [Path("data/interim/iqa_daily_2022_2024.parquet"),
-                  Path("data/interim/iqa_daily_2025_2027.parquet")]
+            else [
+                Path("data/interim/iqa_daily_2022_2024.parquet"),
+                Path("data/interim/iqa_daily_2025_2027.parquet"),
+            ]
         )
 
     df = _load_hourly(paths, args) if args.freq == "H" else _load_daily(paths)
@@ -417,35 +472,57 @@ def main():
 
     # Filters
     if args.station_filter:
-        stc = _find_col(df, args.stcol,
-                        ["station_name", "station", "nom_station",
-                         "id_station", "station_id", "code_station"],
-                        contains=["station"])
+        stc = _find_col(
+            df,
+            args.stcol,
+            [
+                "station_name",
+                "station",
+                "nom_station",
+                "id_station",
+                "station_id",
+                "code_station",
+            ],
+            contains=["station"],
+        )
         if stc:
-            df = df[df[stc].astype(str).str.contains(args.station_filter,
-                                                     case=False, na=False)]
+            df = df[
+                df[stc]
+                .astype(str)
+                .str.contains(args.station_filter, case=False, na=False)
+            ]
 
     if args.freq == "H" and args.pollutant:
         if "pollutant" not in df.columns:
-            raise KeyError("Hourly table has no 'pollutant'. Provide --pollutant-col if your data is long format.")
+            raise KeyError(
+                "Hourly table has no 'pollutant'. Provide --pollutant-col if your data is long format."
+            )
         want = _normalize_pollutant_name(args.pollutant)
         df = df[df["pollutant"].astype(str).map(_normalize_pollutant_name) == want]
 
     # Standardize datetime/value
-    dt = _find_col(df, args.dtcol,
-                   ["datetime", "date_time", "timestamp"],
-                   contains=["date", "time"])
+    dt = _find_col(
+        df,
+        args.dtcol,
+        ["datetime", "date_time", "timestamp"],
+        contains=["date", "time"],
+    )
     if dt and dt != "datetime":
         df = df.rename(columns={dt: "datetime"})
     if "datetime" not in df.columns:
         raise KeyError("No datetime column found after loading.")
 
     if "value" not in df.columns:
-        vcol = _find_col(df, args.vcol,
-                         ["value", "valeur", "concentration", "result", "measurement"],
-                         contains=["value", "val", "conc", "result", "measure"])
+        vcol = _find_col(
+            df,
+            args.vcol,
+            ["value", "valeur", "concentration", "result", "measurement"],
+            contains=["value", "val", "conc", "result", "measure"],
+        )
         if not vcol:
-            raise KeyError("No 'value' column could be derived; pass --value-col explicitly.")
+            raise KeyError(
+                "No 'value' column could be derived; pass --value-col explicitly."
+            )
         df = df.rename(columns={vcol: "value"})
 
     df = df.sort_values("datetime")
@@ -502,10 +579,12 @@ def main():
         mlflow.log_metric("forecast_max", float(np.max(yhat)))
 
         tmp_json = out_path.with_suffix(".json")
-        tmp_json.write_text(json.dumps(
-            fc.assign(datetime=fc["datetime"].astype(str)).to_dict("records"),
-            indent=2
-        ))
+        tmp_json.write_text(
+            json.dumps(
+                fc.assign(datetime=fc["datetime"].astype(str)).to_dict("records"),
+                indent=2,
+            )
+        )
         mlflow.log_artifact(str(out_path))
         mlflow.log_artifact(str(tmp_json))
 

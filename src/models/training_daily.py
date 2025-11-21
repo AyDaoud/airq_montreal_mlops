@@ -1,12 +1,11 @@
 # scripts/train_daily_iqa.py
 from __future__ import annotations
-import argparse, json
 from pathlib import Path
 import pandas as pd
-import mlflow, joblib
-from sklearn.metrics import mean_absolute_error, mean_squared_error
+from sklearn.metrics import mean_absolute_error
+from sklearn.metrics import mean_squared_error
+
 from src.features.build_features import build_features_daily_iqa
-from src.models.model_factory import save_sklearn, save_prophet, save_lstm
 import numpy as np
 
 # Prophet typed against np.float_ etc.; provide aliases when missing (NumPy 2.x)
@@ -15,12 +14,12 @@ if not hasattr(np, "float_"):
 if not hasattr(np, "int_"):
     np.int_ = np.int64
 
-from prophet import Prophet
-
 
 def _daily_df():
-    paths = [Path("data/interim/iqa_daily_2022_2024.parquet"),
-             Path("data/interim/iqa_daily_2025_2027.parquet")]
+    paths = [
+        Path("data/interim/iqa_daily_2022_2024.parquet"),
+        Path("data/interim/iqa_daily_2025_2027.parquet"),
+    ]
     frames = [pd.read_parquet(p) for p in paths if p.exists()]
     if not frames:
         raise FileNotFoundError("No daily IQA parquet found.")
@@ -65,6 +64,7 @@ def train_rf():
     tr, va = _time_split(feat_df)
 
     from sklearn.ensemble import RandomForestRegressor
+
     model = RandomForestRegressor(
         n_estimators=300, max_depth=12, n_jobs=-1, random_state=42
     )
@@ -73,12 +73,16 @@ def train_rf():
     p_va = model.predict(va[feats])
     mae_tr, rmse_tr = _metrics(tr["target"], p_tr)
     mae_va, rmse_va = _metrics(va["target"], p_va)
-    return model, feats, {
-        "mae_tr": mae_tr,
-        "rmse_tr": rmse_tr,
-        "mae_va": mae_va,
-        "rmse_va": rmse_va,
-    }
+    return (
+        model,
+        feats,
+        {
+            "mae_tr": mae_tr,
+            "rmse_tr": rmse_tr,
+            "mae_va": mae_va,
+            "rmse_va": rmse_va,
+        },
+    )
 
 
 def train_prophet():
@@ -106,7 +110,9 @@ def train_prophet():
 
     # Load daily data and coerce columns
     df = _daily_df()[["datetime", "value"]].copy()
-    df["ds"] = pd.to_datetime(df["datetime"], utc=True, errors="coerce").dt.tz_localize(None)
+    df["ds"] = pd.to_datetime(df["datetime"], utc=True, errors="coerce").dt.tz_localize(
+        None
+    )
     df["y"] = pd.to_numeric(df["value"], errors="coerce")
     df = df.dropna(subset=["ds", "y"]).sort_values("ds")[["ds", "y"]]
 
@@ -114,7 +120,9 @@ def train_prophet():
     tr, va = _time_split(df, ratio=0.2)
 
     # Fit Prophet
-    m = Prophet(daily_seasonality=True, weekly_seasonality=True, yearly_seasonality=True)
+    m = Prophet(
+        daily_seasonality=True, weekly_seasonality=True, yearly_seasonality=True
+    )
     m.fit(tr)
 
     # Reduce / disable uncertainty sampling to avoid 1000 x N arrays
@@ -128,17 +136,22 @@ def train_prophet():
     yhat_tr = _batched_predict(m, tr, batch_size=5000)
     mae_tr, rmse_tr = _metrics(tr["y"].to_numpy(), yhat_tr)
 
-    return m, None, {
-        "mae_tr": mae_tr,
-        "rmse_tr": rmse_tr,
-        "mae_va": mae_va,
-        "rmse_va": rmse_va,
-    }
-
+    return (
+        m,
+        None,
+        {
+            "mae_tr": mae_tr,
+            "rmse_tr": rmse_tr,
+            "mae_va": mae_va,
+            "rmse_va": rmse_va,
+        },
+    )
 
 
 def train_lstm(seq_len=30, epochs=10, lr=1e-3, hidden=64, batch_size=64):
-    import torch, torch.nn as nn
+    import torch
+    import torch.nn as nn
+
     torch.set_num_threads(1)
 
     df = _daily_df()[["datetime", "value"]].copy()
@@ -195,7 +208,9 @@ def train_lstm(seq_len=30, epochs=10, lr=1e-3, hidden=64, batch_size=64):
         out = []
         with torch.no_grad():
             for i in range(0, len(Xa), batch_size):
-                out.append(net(to_batch(Xa[i : i + batch_size])).squeeze(1).cpu().numpy())
+                out.append(
+                    net(to_batch(Xa[i : i + batch_size])).squeeze(1).cpu().numpy()
+                )
         return np.concatenate(out, axis=0)
 
     p_tr = predict_batches(Xtr)
@@ -208,9 +223,13 @@ def train_lstm(seq_len=30, epochs=10, lr=1e-3, hidden=64, batch_size=64):
 
     mae_tr, rmse_tr = _metrics(ytr_den, p_tr)
     mae_va, rmse_va = _metrics(yva_den, p_va)
-    return net.state_dict(), {"seq_len": seq_len, "mean": mu, "std": sigma}, {
-        "mae_tr": mae_tr,
-        "rmse_tr": rmse_tr,
-        "mae_va": mae_va,
-        "rmse_va": rmse_va,
-    }
+    return (
+        net.state_dict(),
+        {"seq_len": seq_len, "mean": mu, "std": sigma},
+        {
+            "mae_tr": mae_tr,
+            "rmse_tr": rmse_tr,
+            "mae_va": mae_va,
+            "rmse_va": rmse_va,
+        },
+    )

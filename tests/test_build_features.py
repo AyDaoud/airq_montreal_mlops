@@ -4,17 +4,21 @@ from src.features.build_features import build_features
 
 def test_build_features_basic():
     # Minimal fake RSQA + weather data
-    pr = pd.DataFrame({
-        "datetime": pd.date_range("2024-01-01", periods=10, freq="H", tz="UTC"),
-        "station_id": [1] * 10,
-        "pollutant": ["NO2"] * 10,
-        "value": range(10),
-    })
+    pr = pd.DataFrame(
+        {
+            "datetime": pd.date_range("2024-01-01", periods=10, freq="H", tz="UTC"),
+            "station_id": [1] * 10,
+            "pollutant": ["NO2"] * 10,
+            "value": range(10),
+        }
+    )
 
-    pw = pd.DataFrame({
-        "datetime": pd.date_range("2024-01-01", periods=10, freq="H", tz="UTC"),
-        "temp": [0.0] * 10,
-    })
+    pw = pd.DataFrame(
+        {
+            "datetime": pd.date_range("2024-01-01", periods=10, freq="H", tz="UTC"),
+            "temp": [0.0] * 10,
+        }
+    )
 
     df, feats = build_features(pr, pw, pollutant="NO2")
 

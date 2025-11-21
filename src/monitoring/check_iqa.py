@@ -7,18 +7,21 @@ from pathlib import Path
 from typing import Tuple
 
 import mlflow
-import numpy as np
 import pandas as pd
 
 from evidently import ColumnMapping
-from evidently.metric_preset import RegressionPreset, DataDriftPreset
+from evidently.metric_preset import RegressionPreset
+from evidently.metric_preset import DataDriftPreset
+
 from evidently.report import Report
 
 from src.models.training_daily import _daily_df
-from src.monitoring.metrics import regression_metrics, simple_drift_score
+from src.monitoring.metrics import regression_metrics
+from src.monitoring.metrics import simple_drift_score
 
 
 # ---------- helpers to load data ----------
+
 
 def _load_truth() -> pd.DataFrame:
     """
@@ -85,6 +88,7 @@ def _align_truth_and_pred(truth: pd.DataFrame, preds: pd.DataFrame) -> pd.DataFr
 
 # ---------- Evidently report ----------
 
+
 def _build_evidently_report(
     reference: pd.DataFrame,
     current: pd.DataFrame,
@@ -105,7 +109,9 @@ def _build_evidently_report(
     )
 
     report = Report(metrics=[RegressionPreset(), DataDriftPreset()])
-    report.run(reference_data=reference, current_data=current, column_mapping=column_mapping)
+    report.run(
+        reference_data=reference, current_data=current, column_mapping=column_mapping
+    )
 
     ts = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
     html_path = out_dir / f"iqa_monitoring_{ts}.html"
@@ -131,6 +137,7 @@ def _build_evidently_report(
 
 # ---------- main monitoring logic ----------
 
+
 def run_monitoring(
     model: str,
     mlflow_uri: str | None = None,
@@ -154,7 +161,9 @@ def run_monitoring(
     merged = _align_truth_and_pred(truth, preds)
 
     if merged.empty:
-        print("⚠️  No overlapping timestamps between truth and predictions → nothing to monitor.")
+        print(
+            "⚠️  No overlapping timestamps between truth and predictions → nothing to monitor."
+        )
         return {}, 0.0, False, None
 
     # Use ALL aligned rows for performance metrics
@@ -172,14 +181,22 @@ def run_monitoring(
         reference = merged.iloc[:-30]
         current = merged.iloc[-30:]
 
-    drift = simple_drift_score(reference["value"].to_numpy(), current["value"].to_numpy())
+    drift = simple_drift_score(
+        reference["value"].to_numpy(), current["value"].to_numpy()
+    )
 
     # Build Evidently report (drift + regression) from the same reference/current
     dashboards_dir = Path("dashboards")
-    html_path, drift_flag_evidently = _build_evidently_report(reference, current, dashboards_dir)
+    html_path, drift_flag_evidently = _build_evidently_report(
+        reference, current, dashboards_dir
+    )
 
     # Decide alert
-    alert = (mets["mae"] > mae_threshold) or (drift > drift_threshold) or drift_flag_evidently
+    alert = (
+        (mets["mae"] > mae_threshold)
+        or (drift > drift_threshold)
+        or drift_flag_evidently
+    )
 
     # Log everything to MLflow
     with mlflow.start_run(run_name=f"monitor_{model}"):
@@ -232,7 +249,9 @@ def main() -> None:
         print(f"Evidently HTML report: {html_path}")
 
     if alert:
-        print("⚠️  Alert: thresholds violated (MAE, drift or Evidently). Consider retraining.")
+        print(
+            "⚠️  Alert: thresholds violated (MAE, drift or Evidently). Consider retraining."
+        )
     else:
         print("✅  Within thresholds. No action required.")
 
