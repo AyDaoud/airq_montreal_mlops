@@ -5,27 +5,33 @@ from pydantic import BaseModel
 import pandas as pd
 from joblib import load
 
+#####
 # 👇 default to RF model, but allow override from env
 MODEL_PATH = os.environ.get("MODEL_PATH", "artifacts/rf/model.pkl")
 FEATURE_COLUMNS = os.environ.get("FEATURE_COLUMNS")  # optional comma-separated
 
 app = FastAPI()
 
+
 class PredictRequest(BaseModel):
     rows: list[dict]
+
 
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
 
 def _load_feature_cols(df_sample: pd.DataFrame):
     if FEATURE_COLUMNS:
         return [c.strip() for c in FEATURE_COLUMNS.split(",") if c.strip()]
     # default heuristic: drop id/time/target-like cols
     return [
-        c for c in df_sample.columns
+        c
+        for c in df_sample.columns
         if c not in ("datetime", "station_id", "pollutant", "value", "target")
     ]
+
 
 @app.post("/predict")
 def predict(req: PredictRequest):
