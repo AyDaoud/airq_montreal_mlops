@@ -105,7 +105,12 @@ def daily_weather(weather: pd.DataFrame) -> pd.DataFrame:
     df = weather.copy()
     # Open-Meteo is fetched with timezone="UTC" (see src.data.weather), so the
     # UTC calendar date already lines up with the archive's own bucketing.
-    df["date_local"] = pd.to_datetime(df["ts_utc"].dt.date)
+    # Bucket on the Montreal civil date, matching hourly_to_daily. Bucketing
+    # weather on the UTC date instead would offset every weather feature by
+    # 4-5 hours from the air quality it is meant to explain.
+    df["date_local"] = pd.to_datetime(
+        df["ts_utc"].dt.tz_convert("America/Montreal").dt.date
+    )
 
     radians = np.radians(df["wind_direction_10m"].astype(float))
     speed = df["wind_speed_10m"].astype(float)

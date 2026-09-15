@@ -95,7 +95,8 @@ def test_targets_respect_calendar_gaps():
 
 
 def test_daily_weather_encodes_wind_direction_as_unit_vector():
-    ts = pd.date_range("2024-06-01", periods=24, freq="h", tz="UTC")
+    # 04:00 UTC == 00:00 EDT, so these 24 hours are exactly one Montreal day.
+    ts = pd.date_range("2024-06-01 04:00", periods=24, freq="h", tz="UTC")
     weather = pd.DataFrame(
         {
             "cell_id": "45.5_-73.6",
@@ -114,3 +115,29 @@ def test_daily_weather_encodes_wind_direction_as_unit_vector():
     assert row["wind_dir_cos"] == pytest.approx(0.0, abs=1e-6)
     assert row["precip_sum"] == pytest.approx(12.0)
     assert row["wind_speed_mean"] == pytest.approx(10.0)
+
+
+def test_weather_and_iqa_bucket_on_the_same_calendar_day():
+    """Regression: weather was bucketed on the UTC date while IQA used the
+    Montreal civil date, offsetting every weather feature by 4-5 hours."""
+    ts = pd.date_range("2024-07-15 04:00", periods=24, freq="h", tz="UTC")
+    weather = pd.DataFrame(
+        {
+            "cell_id": "45.5_-73.6",
+            "ts_utc": ts,
+            "temperature_2m": 20.0,
+            "relative_humidity_2m": 50.0,
+            "precipitation": 1.0,
+            "wind_speed_10m": 5.0,
+            "wind_direction_10m": 180.0,
+            "surface_pressure": 1000.0,
+        }
+    )
+    out = daily_weather(weather)
+    assert len(out) == 1, "24 hours of one Montreal day must collapse to one row"
+    assert out["date_local"].iloc[0] == pd.Timestamp("2024-07-15")
+    assert out["precip_sum"].iloc[0] == pytest.approx(24.0)
+
+    iqa = _hourly([(3, f"2024-07-15 {h:02d}:00", "PM", 10) for h in range(24)])
+    daily = hourly_to_daily(iqa)
+    assert daily["date_local"].iloc[0] == out["date_local"].iloc[0]

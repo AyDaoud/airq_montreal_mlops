@@ -284,7 +284,20 @@ Targets are written by `aggregate.py` and grouped by `station_id`, so no target 
 | # | Decision | Rationale |
 |---|---|---|
 | D1 | IQA = max over pollutant sub-indices per station-hour | Official definition (§2.4) |
-| D2 | Daily IQA = max over the day's local hours | Montréal bad-air-day convention; matches the alert framing of feature ③ |
+| D2 | Daily IQA = max over the day's **Montreal civil** (`America/Montreal`) hours, and weather is bucketed on the **same** civil day | Montréal bad-air-day convention; matches the alert framing of feature ③ |
+
+> **Two consequences of D2, both verified — do not "fix" either.**
+>
+> **(a) The published 2.98% exceedance rate assumes EST-date bucketing.** The §2.5 survey grouped by the raw `(date, heure)` EST calendar. Grouping by the civil calendar moves hours across day boundaries during EDT, so some daily maxima land on a different day:
+>
+> | Bucketing | Station-days | Exceedances | Rate |
+> |---|---|---|---|
+> | EST date (original survey) | 16,186 | 482 | 2.98% |
+> | **Montreal civil date (pipeline)** | 16,187 | 473 | **2.92%** |
+>
+> Civil date is the correct choice — a "bad air day" is the day residents lived through. **2.92% is the number Spec B should quote.**
+>
+> **(b) Weather must bucket on the civil date too.** An earlier implementation bucketed weather on the UTC date while IQA used the civil date, which offset every weather feature by 4–5 hours from the air quality it explains (weather "2024-07-15" actually covered local 14th 20:00 → 15th 19:00). Both sides now use the civil date; `test_weather_and_iqa_bucket_on_the_same_calendar_day` pins this.
 | D3 | Parse `(date, heure)` as fixed offset `Etc/GMT+5`; store `ts_utc`; derive calendar features from `ts_local` (`America/Montreal`) | Source is EST year-round (§2.5b), so direct `tz_localize("America/Montreal")` crashes on spring-forward dates. Civil local time is still correct for calendar features, since human activity follows the wall clock |
 | D4 | Write Spec B's targets now | Schema decided once; avoids reshaping gold later |
 | D5 | Drop `boundary_layer_height` | Archive returns null → train/serve skew (§2.7) |
