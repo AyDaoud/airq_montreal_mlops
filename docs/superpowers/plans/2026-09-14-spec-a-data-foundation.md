@@ -66,11 +66,24 @@ fastapi==0.115.0
 uvicorn==0.30.0
 pydantic==2.7.4
 pandas==2.2.2
-numpy==2.2.4
+numpy==2.0.2
 scikit-learn==1.7.2
 joblib==1.4.2
 pyarrow==17.0.0
 ```
+
+> **Why `numpy==2.0.2` and not the repo's existing `2.2.4`.** `evidently` 0.4.40 declares
+> `numpy<2.1,>=1.22.0`, so `numpy==2.2.4` makes the requirement set unsatisfiable —
+> meaning blocker B2 was never merely an undeclared import, it was **unfixable** at the
+> repo's own numpy pin. Every release in the `0.4.x`–`0.7.0` range carries that cap; it is
+> lifted only from `0.7.1`, which also breaks the `Report`/`Preset` API that
+> `src/monitoring/check_iqa.py` is written against. Downgrading numpy keeps monitoring
+> working untouched, as spec section 10 requires, and holds one numpy across training and
+> serving so pickles and float behaviour cannot skew. Verified by `pip install --dry-run`:
+> the full set resolves with numpy 2.0.2, evidently 0.4.40, pandera 0.25.0, torch 2.4.0.
+>
+> **Spec C must revisit this**: bump to `evidently>=0.7.1` and port `check_iqa.py` to the
+> new API, which then frees numpy again.
 
 - [ ] **Step 3: Rewrite `requirements.txt` as the full training set**
 
