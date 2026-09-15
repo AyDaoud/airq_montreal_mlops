@@ -7,7 +7,7 @@ __pycache__/
 *.pyc
 
 # Data and artifacts (keep repo light)
-data/
+/data/
 artifacts/*
 !artifacts/.gitkeep
 mlruns/
