@@ -77,6 +77,26 @@ The existing `build_features_daily_iqa` fallback ("take the first numeric column
 
 The PM finding is the physical justification for feature ②: particulate episodes are governed by wind speed (dispersion), wind direction (transport), and precipitation (scavenging).
 
+### 2.5b Timestamps are fixed-offset EST, not local-with-DST
+
+Verified on the 2024 DST transition days:
+
+| Day | Event | Distinct hours | Station 3 / O3 rows |
+|---|---|---|---|
+| 2024-03-10 | spring forward | 24 | 24 (hours 0–23, **including 02**) |
+| 2024-11-03 | fall back | 24 | 24 |
+| 2024-06-15 | normal | 24 | 24 |
+
+Local wall-clock time would give 23 hours on the spring-forward day and a duplicated hour on the fall-back day. Both days have exactly 24 distinct hours and hour `02` is present on 2024-03-10, so `(date, heure)` is **UTC−5 year-round** (Eastern Standard Time, the convention used by air-quality networks).
+
+**Consequence:** `ts.tz_localize("America/Montreal")` raises `NonExistentTimeError` on every spring-forward date. Parsing must localize to the fixed offset `Etc/GMT+5` and only then convert.
+
+```python
+ts_est   = (pd.to_datetime(date) + pd.to_timedelta(heure, unit="h")).dt.tz_localize("Etc/GMT+5")
+ts_utc   = ts_est.dt.tz_convert("UTC")
+ts_local = ts_utc.dt.tz_convert("America/Montreal")   # civil time, for calendar features
+```
+
 ### 2.6 Station geo joins cleanly — but the file is dirty
 
 Dataset `ae01f7f3-4d69-404a-9be1-74abfdc96571`, resource `29db5545-89a4-4e4a-9e95-05aa6dc2fd80`.
@@ -226,7 +246,7 @@ Targets are written by `aggregate.py` and grouped by `station_id`, so no target 
 |---|---|---|
 | D1 | IQA = max over pollutant sub-indices per station-hour | Official definition (§2.4) |
 | D2 | Daily IQA = max over the day's local hours | Montréal bad-air-day convention; matches the alert framing of feature ③ |
-| D3 | Store both `ts_utc` and `ts_local`; derive all calendar features from **local** time | Fixes the DST defect: UTC-derived `hour`/`dow` smear rush-hour signal and shift twice a year |
+| D3 | Parse `(date, heure)` as fixed offset `Etc/GMT+5`; store `ts_utc`; derive calendar features from `ts_local` (`America/Montreal`) | Source is EST year-round (§2.5b), so direct `tz_localize("America/Montreal")` crashes on spring-forward dates. Civil local time is still correct for calendar features, since human activity follows the wall clock |
 | D4 | Write Spec B's targets now | Schema decided once; avoids reshaping gold later |
 | D5 | Drop `boundary_layer_height` | Archive returns null → train/serve skew (§2.7) |
 | D6 | Fetch weather per 0.1° grid cell, not per station | 7 calls instead of 11 (measured); finer rounding than the source grid would duplicate data |
