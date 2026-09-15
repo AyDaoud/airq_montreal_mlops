@@ -89,6 +89,16 @@ realtime   : Id,stationId,address,latitude,longitude,X,Y,
 
 Both are **long format, one row per (station, pollutant, hour)**. `heure` is `0..23` (no 1–24 off-by-one). `valeur` is a non-null integer in `[0, 484]`. No duplicates on `(stationId, polluant, date, heure)` across 1,335,962 historical rows.
 
+**The column name is not the only difference — the pollutant *vocabulary* differs too.** Found during Task 6, missed in the original survey:
+
+| | historical | realtime |
+|---|---|---|
+| column name | `polluant` | `pollutant` |
+| particulate label | `PM` | **`PM2.5`** |
+| observed values | `PM, O3, NO2, SO2, CO` | `O3, PM2.5, SO2` (today) |
+
+They denote the same quantity — RSQA's particulate sub-index *is* PM2.5; the historical dump simply labels it `PM`. Normalization maps `PM2.5`/`PM2_5` → `PM` **before** contract validation, so both sources satisfy one vocabulary. An unrecognised spelling therefore fails the contract loudly rather than entering the pipeline silently, which is the intended behaviour.
+
 ### 2.4 IQA must be computed, not read
 
 Neither file contains the air-quality index. Both contain **per-pollutant sub-indices**. The official IQA is the **maximum across pollutants** for a station-hour.
