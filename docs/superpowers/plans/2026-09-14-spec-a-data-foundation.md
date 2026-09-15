@@ -16,7 +16,7 @@
 
 - Python 3.12.9 is available at `/home/ayman/miniconda3/bin/python3`. The global env has pandas **3.0.5**, but this project pins pandas **2.2.2** — so **all work happens inside `.venv`**, never the conda base env.
 - **Docker is not installed on this machine.** Tasks 16–17 cannot be verified locally; they are verified by GitHub Actions on push. Each such step says so explicitly and gives the CI check to watch.
-- `donnees.montreal.ca` returns `403 RBAC: access denied` to non-browser User-Agents. Never use bare `requests.get` or `pd.read_csv(url)` against it.
+- `donnees.montreal.ca` returns `403 RBAC: access denied` to the **`curl`** User-Agent only. Python clients (`requests`, `urllib`, `pd.read_csv`) are served normally. `src/data/http.py` exists for retry/backoff on the observed 503 and for ETag caching; the browser UA is cheap insurance, not a required workaround.
 
 ## File structure
 
@@ -401,7 +401,7 @@ print("our session   :", build_session().get(url, timeout=60).status_code)
 EOF
 ```
 
-Expected: `bare requests : 403` and `our session   : 200`
+Expected: **both 200**. The 403 reproduces only with a `curl` User-Agent, not from Python. A 403 from bare requests would mean the WAF rule has broadened — report it, do not paper over it.
 
 - [ ] **Step 7: Commit**
 

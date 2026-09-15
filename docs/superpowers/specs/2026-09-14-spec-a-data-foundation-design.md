@@ -29,11 +29,40 @@ Spec A closes all four and, in the same pass, builds the ingestion layer that fe
 
 All facts below were confirmed by live inspection on 2026-09-14. They supersede assumptions in the original code.
 
-### 2.1 The portal blocks non-browser User-Agents
+### 2.1 The portal blocks the `curl` User-Agent specifically — CORRECTED
 
-Every CSV download from `donnees.montreal.ca` returns `HTTP 403` with body `RBAC: access denied` unless a browser `User-Agent` header is sent. The CKAN API (`/api/3/action/...`) is **not** affected.
+An earlier draft of this spec claimed the portal blocks all non-browser User-Agents and that `pd.read_csv(url)` therefore fails. **That was wrong**, and it was wrong because every probe behind it used `curl`. Re-measured across clients on 2026-09-14:
 
-Consequence: `pd.read_csv(url)` and bare `requests.get(url)` both fail. This is handled once, in `src/data/http.py`.
+| User-Agent | Status |
+|---|---|
+| `curl/8.5.0` | **403** `RBAC: access denied` |
+| `python-requests/2.32.3` | 200 |
+| `Python-urllib/3.12` | 200 |
+| *(no UA header)* | 200 |
+| browser UA | 200 |
+
+`pd.read_csv(url)` succeeds today. The block is a `curl`-specific WAF rule, not a browser allowlist.
+
+**What this does and does not justify.** It does not justify `src/data/http.py` as a workaround for a broken default client — there is nothing to work around from Python. The module is still worth keeping for the reasons below, which stand on their own:
+
+* retry with backoff for the **HTTP 503** genuinely observed on the realtime resource (§2.2)
+* conditional `If-None-Match` requests, so re-ingesting does not re-download 26 MB unchanged
+* one place to set timeouts and one place to change if the WAF rule broadens later
+
+Setting a browser UA costs nothing and insures against the rule widening, so it stays — but it is belt-and-braces, not the load-bearing reason for the module.
+
+### 2.1b The real cause of blocker B1: `.gitignore` silently swallowed `src/data/`
+
+The original `.gitignore` line 10 was an unanchored `data/`. Git matches an unanchored directory pattern **at any depth**, so it also matched `src/data/` and `tests/data/`. Verified:
+
+```
+$ git check-ignore -v src/data/rsqa_ingest.py
+.gitignore:1:data/	src/data/rsqa_ingest.py
+```
+
+`git add src/data/rsqa_ingest.py` would have silently refused. This is almost certainly why the ingestion module appears in no commit while `orchestration/flow.py:30` imports it: the file very likely existed on the author's disk and git declined to track it, with no error on a plain `git add <dir>`.
+
+**Fix:** anchor the rule to `/data/` so only the repository-root data directory is ignored. Applied in Task 1. Every later task that adds files under `src/data/` depends on this.
 
 ### 2.2 The historical IQA files are annual dumps, not a daily feed
 
