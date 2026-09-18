@@ -29,6 +29,32 @@ The trained model is roughly **9% worse than the trivial baseline**. Two correct
 - The `mae_va ≈ 4.6` the training code reports is inflated by about **43%**, because `_time_split` produces a station holdout rather than a time holdout.
 - A **Δ-from-today target does not help** (8.511, the worst of the three). This was proposed as the likely fix before it was measured; it is recorded here so the spec does not build on it.
 
+### 1.1b A model family that DOES beat persistence — measured across 5 folds
+
+A bake-off across model families, then validated on 5 rolling-origin folds (90-day test windows, expanding):
+
+| fold | cut | persistence MAE | **Huber on Δ** | Ridge on Δ | RF on level |
+|---|---|---|---|---|---|
+| 1 | 2024-10-24 | 6.301 | **0.954** | 1.037 | 0.913 |
+| 2 | 2025-01-22 | 5.445 | **0.904** | 0.998 | 0.901 |
+| 3 | 2025-04-22 | 8.239 | **0.892** | 0.948 | 1.068 |
+| 4 | 2025-07-21 | 10.270 | **0.867** | 0.905 | 1.066 |
+| 5 | 2025-10-19 | 4.843 | **0.877** | 0.962 | 0.930 |
+| | **mean MASE** | — | **0.899** | 0.970 | 0.976 |
+| | **folds won** | — | **5/5** | 4/5 | 3/5 |
+
+**Huber regression on a Δ-from-today target beats persistence by ~10%, in every fold.**
+
+Why the tree ensembles failed, and why this works:
+
+- Tree ensembles average over leaves, shrinking predictions toward the training mean. On a strongly persistent, near-random-walk series that is exactly the wrong inductive bias.
+- A **linear** model on the *difference* has no such shrinkage: it starts from today's value and learns only the correction.
+- **Huber loss** is robust to the heavy-tailed exceedance days that dominate squared error (recall RMSE 14.7 against MAE 7.4 for persistence — a 2× ratio).
+
+**The model family was the problem, not the features.** §1.1 recorded that a Δ-target made things worse — that was true *with a RandomForest* (8.511). The same reframe with a linear robust regressor wins. Target framing and model family had to change together; testing either alone was misleading.
+
+**A methodological warning this produced.** RF scored MASE 1.093 on the single split in §1.1 but 0.976 averaged over 5 folds, winning 3 of them. A single split mislead by ~12%. This is the direct justification for the rolling-origin protocol in §4 — no conclusion in this spec may rest on one split.
+
 ### 1.2 The exceedance problem is where signal exists
 
 Same split, predicting whether IQA exceeds 50 tomorrow:
@@ -59,14 +85,17 @@ Probable cause: roughly 20 features against only 299 training positives, with tr
 4. Calibrated uncertainty on the regression.
 5. A published, regenerable scoreboard.
 
+### Also in scope (expanded after the §1.1b finding)
+6. **Model family selection is a first-class deliverable.** Huber-on-Δ is the incumbent to beat; the backtest evaluates linear, robust-linear, boosted and tree families on equal terms and the scoreboard picks the winner on mean MASE across folds.
+
 ### Non-goals (deferred to a bounded follow-up)
-- Hyperparameter search, gradient boosting, feature selection
+- Exhaustive hyperparameter search (a small, declared grid is in scope; a large search is not)
 - Per-station retraining of Prophet/LSTM beyond one scoreboard run
 - Anything in Spec C (dashboards, Postgres, Streamlit) or Spec D (Terraform, Cloud Run)
 
 ### An explicitly permitted outcome
 
-**Spec B may conclude that daily IQA at h=24 is not predictable beyond persistence.** That is a valid, publishable result. No acceptance criterion requires a model to win. A spec that can only succeed by producing a winner builds in a reason to fool ourselves, which is the failure this project has been correcting.
+**Spec B may conclude that daily IQA at h=24 is not predictable beyond persistence.** (The §1.1b result suggests it is, by roughly 10% — but that is a preliminary bake-off, not the spec's own backtest, and the spec must be free to reach a different answer.) That is a valid, publishable result. No acceptance criterion requires a model to win. A spec that can only succeed by producing a winner builds in a reason to fool ourselves, which is the failure this project has been correcting.
 
 ---
 
