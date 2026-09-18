@@ -9,6 +9,7 @@ import mlflow.sklearn as mlf_sklearn  # for sklearn model logging
 
 from src.models.training_daily import train_rf, train_prophet, train_lstm
 from src.models.model_factory import save_sklearn, save_prophet, save_lstm
+from src.tracking import resolve_tracking_uri
 
 
 def main() -> None:
@@ -23,10 +24,7 @@ def main() -> None:
     args = parser.parse_args()
 
     # --------- MLflow tracking setup ---------
-    tracking_uri = (
-        args.mlflow_uri
-        or "sqlite:///C:/Users/AU51870/Downloads/airq_montreal_mlops/mlflow.db"
-    )
+    tracking_uri = resolve_tracking_uri(args.mlflow_uri)
     mlf.set_tracking_uri(tracking_uri)
     mlf.set_experiment(args.experiment)
 
