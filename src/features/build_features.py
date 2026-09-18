@@ -108,10 +108,13 @@ def build_features(
 
 DAILY_LAGS = (1, 2, 3, 7, 14)
 
+# 'iqa' is the current day's value and IS a legitimate feature for a
+# next-day target - excluding it made this a two-step-ahead model reported
+# as one-step. Latitude/longitude stay excluded: they are constant per
+# station and let a tree memorise station identity.
 _NON_FEATURE_COLUMNS = {
     "station_id",
     "date_local",
-    "iqa",
     "driving_pollutant",
     "name",
     "borough",

@@ -83,11 +83,6 @@ def test_missing_required_column_fails_loudly():
         build_features_daily_iqa(bad)
 
 
-@pytest.mark.xfail(
-    reason="Spec B: today's IQA is excluded from features, so this is really a "
-    "two-step-ahead model. Fixed in Spec B task 'put value back'.",
-    strict=True,
-)
 def test_current_day_iqa_is_available_as_a_feature():
     _, feats = build_features_daily_iqa(_gold())
     assert "iqa" in feats
