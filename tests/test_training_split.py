@@ -46,11 +46,6 @@ def test_daily_df_is_sorted_by_station_then_date(tmp_path, monkeypatch):
     assert out["station_id"].tolist() == [3, 3, 6, 6]
 
 
-@pytest.mark.xfail(
-    reason="Spec B: _time_split slices a frame sorted by [station_id, date_local], "
-    "so the holdout is the last stations, not the last dates.",
-    strict=True,
-)
 def test_time_split_holdout_starts_after_train_ends():
     df = pd.DataFrame(
         {

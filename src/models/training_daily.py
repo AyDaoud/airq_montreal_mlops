@@ -32,9 +32,15 @@ def _daily_df():
 
 
 def _time_split(df, ratio=0.2):
-    n = len(df)
-    k = int(n * (1 - ratio))
-    return df.iloc[:k], df.iloc[k:]
+    """Split on a date boundary.
+
+    The previous implementation sliced by row index on a frame sorted by
+    [station_id, date_local], which produced a station holdout and inflated
+    reported validation scores by roughly 43%.
+    """
+    from src.evaluation.splits import time_split
+
+    return time_split(df, test_fraction=ratio)
 
 
 def _metrics(y_true, y_pred):
