@@ -294,9 +294,9 @@ Spec B adds:
 - a rolling-origin backtest
 - honest evaluation before any accuracy number is claimed
 
-Two defects were found while building the data/training layer and are deliberately **not fixed**
+Three defects were found while building the data/training layer and are deliberately **not fixed**
 in Spec A. Each is pinned by a `strict=True` xfail test rather than left silent, so the test suite
-fails loudly the moment either is fixed without updating the test:
+fails loudly the moment one is fixed without updating the test:
 
 - **The "time holdout" is really a station holdout.** `_time_split` slices a frame sorted by
   `[station_id, date_local]`, so the split separates stations, not time.
@@ -304,8 +304,13 @@ fails loudly the moment either is fixed without updating the test:
 - **Prophet and the LSTM flatten 11 interleaved station series into one.** Both see one series
   where there should be 11 independent per-station series.
   Pinned by `tests/test_training_split.py::test_series_builder_yields_one_series_per_station`.
+- **Today's IQA is excluded from the feature set.** The target is tomorrow's IQA, but the current
+  day's own value is not a feature, so the model predicts `t+1` from `t-1` backwards. It is
+  effectively a two-step-ahead model reported as one-step, and it discards the single most
+  predictive input available.
+  Pinned by `tests/test_build_features.py::test_current_day_iqa_is_available_as_a_feature`.
 
-Both are fixed in Spec B.
+All three are fixed in Spec B.
 
 ---
 
