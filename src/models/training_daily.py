@@ -8,6 +8,9 @@ from sklearn.metrics import mean_squared_error
 from src.features.build_features import build_features_daily_iqa
 import numpy as np
 
+from src.models.series import station_series as _station_series  # noqa: F401
+from src.models.series import station_series_map as _station_series_map  # noqa: F401
+
 # Prophet typed against np.float_ etc.; provide aliases when missing (NumPy 2.x)
 if not hasattr(np, "float_"):
     np.float_ = np.float64
