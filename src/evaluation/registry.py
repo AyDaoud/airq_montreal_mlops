@@ -1,14 +1,30 @@
 """Candidate models, each declaring its target framing.
 
-Target framing and model family interact. A delta target with a
-RandomForest is worse than the level (MAE 8.511 vs 8.324); the same delta
-target with a robust linear model is the best thing measured (mean MASE
-0.899). Neither choice can be evaluated alone, so both live here together.
+Two factors were varied: model family and target framing (predict
+tomorrow's level, or predict the change from today). A 2x2 backtest
+isolated their effects:
 
-Why tree ensembles lose on this problem: they average over leaves and
-shrink toward the training mean, which is the wrong inductive bias for a
-near-random-walk series. A linear model on the difference starts from
-today's value and learns only the correction.
+                      level    delta    effect of framing
+    huber            0.8990   0.8990        +0.0000
+    ridge            0.9701   0.9701        +0.0000
+    effect of loss   -0.0711  -0.0711
+
+**The delta framing is a no-op; the entire win is the robust loss.**
+
+Why the framing does nothing here: ``iqa`` is itself a feature, so for a
+LINEAR model the two parametrisations span the same hypothesis space --
+``y = iqa + w.x`` is reachable either way. They differ only through the L2
+penalty, by about 3e-05 in MASE.
+
+Why Huber wins: squared error is dominated by the heavy-tailed exceedance
+days (persistence has RMSE 14.7 against MAE 7.4, a 2x ratio). Huber loss
+is linear beyond its threshold, so those days stop dragging the fit.
+
+Why tree ensembles lose: they average over leaves and shrink toward the
+training mean, the wrong inductive bias for a near-random-walk series.
+Trees cannot represent "start from today" internally, which is why the
+delta framing is NOT a no-op for them -- there it actively hurts
+(MAE 8.511 vs 8.324).
 """
 
 from __future__ import annotations
@@ -44,6 +60,15 @@ CANDIDATES: dict[str, Candidate] = {
     "huber_delta": Candidate(
         name="huber_delta",
         target="delta",
+        build=lambda: make_pipeline(
+            StandardScaler(), HuberRegressor(max_iter=800, epsilon=1.35)
+        ),
+    ),
+    "huber_level": Candidate(
+        # Identical in performance to huber_delta. Kept so the scoreboard
+        # itself demonstrates that the delta reframe is a no-op here.
+        name="huber_level",
+        target="level",
         build=lambda: make_pipeline(
             StandardScaler(), HuberRegressor(max_iter=800, epsilon=1.35)
         ),

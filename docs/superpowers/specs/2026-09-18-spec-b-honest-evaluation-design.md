@@ -51,6 +51,18 @@ Why the tree ensembles failed, and why this works:
 - A **linear** model on the *difference* has no such shrinkage: it starts from today's value and learns only the correction.
 - **Huber loss** is robust to the heavy-tailed exceedance days that dominate squared error (recall RMSE 14.7 against MAE 7.4 for persistence — a 2× ratio).
 
+**CORRECTION (measured after this section was written).** A 2×2 backtest isolating loss from framing shows the Δ-target contributes **exactly nothing**:
+
+| | level | delta | effect of framing |
+|---|---|---|---|
+| **huber** | 0.8990 | 0.8990 | **+0.0000** |
+| **ridge** | 0.9701 | 0.9701 | **+0.0000** |
+| *effect of loss* | −0.0711 | −0.0711 | |
+
+**The entire win is the Huber loss, not the reframe.** Because `iqa` is itself a feature, a *linear* model spans the same hypothesis space either way — `y = iqa + w·x` is reachable from both parametrisations, differing only through the L2 penalty (~3e-05 in MASE). Huber wins because squared error is dominated by the heavy-tailed exceedance days, and Huber loss is linear beyond its threshold so those days stop dragging the fit.
+
+The framing is *not* a no-op for trees, which cannot represent "start from today" internally — there it actively hurts (8.511 vs 8.324). `huber_level` is kept in the registry so the scoreboard demonstrates the equivalence rather than asserting it.
+
 **The model family was the problem, not the features.** §1.1 recorded that a Δ-target made things worse — that was true *with a RandomForest* (8.511). The same reframe with a linear robust regressor wins. Target framing and model family had to change together; testing either alone was misleading.
 
 **A methodological warning this produced.** RF scored MASE 1.093 on the single split in §1.1 but 0.976 averaged over 5 folds, winning 3 of them. A single split mislead by ~12%. This is the direct justification for the rolling-origin protocol in §4 — no conclusion in this spec may rest on one split.
