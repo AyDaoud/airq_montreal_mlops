@@ -1,4 +1,4 @@
-.PHONY: install lint format test run-api run-flow build-docker run-docker setup ingest build-data data
+.PHONY: install lint format test run-api run-flow bake-model build-docker build-docker-train run-docker setup ingest build-data data
 
 install:
 	python -m pip install --upgrade pip
@@ -19,8 +19,14 @@ run-api:
 run-flow:
 	python -m orchestration.flow
 
-build-docker:
+bake-model:
+	$(PY) -m scripts.bake_serving_model
+
+build-docker: bake-model
 	docker build -t airq-api .
+
+build-docker-train:
+	docker build -f Dockerfile.train -t airq-train .
 
 run-docker:
 	docker run --rm -p 8000:8000 \
