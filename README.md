@@ -268,9 +268,10 @@ See [section 2](#2-tech-stack) above.
 
 ## 10. Testing & CI
 
-`make test` runs **76 tests, fully offline** (3 are `strict=True` xfails pinning known defects,
-see [Results](#11-results)) — verified to pass with `data/` and `artifacts/` removed, so cloning
-and running tests never requires network access or pre-existing data.
+`make test` runs **129 tests, fully offline, zero xfails** — verified to pass with `data/` and
+`artifacts/` removed, so cloning and running tests never requires network access or
+pre-existing data. All three defects that Spec A pinned as `strict=True` xfails are fixed;
+see [Results](#11-results).
 
 CI (`.github/workflows/ci.yml`) on every push/PR:
 
@@ -284,68 +285,133 @@ CI (`.github/workflows/ci.yml`) on every push/PR:
 
 ## 11. Results
 
-**Spec A builds the data foundation and makes no accuracy claims.** There is no honest evaluation
-in this branch — no train/test split that actually separates by time, no baseline to beat, no
-backtest. Reporting a model metric without those would be misleading, so none is reported.
+### Verdict
 
-Spec B adds:
+Huber regression beats persistence ("tomorrow = today") by roughly **10%**, in **5 of 5**
+backtest folds. That is the one model in this repo that earns its keep on a rolling-origin
+backtest.
 
-- persistence and seasonal-naive baselines
-- a rolling-origin backtest
-- honest evaluation before any accuracy number is claimed
+### How it is measured
 
-### Measured: the current model does not beat persistence
+Every number below comes from `python -m scripts.run_backtest`, which writes
+[`docs/RESULTS.md`](docs/RESULTS.md) from scratch — nothing here is hand-typed. The backtest
+uses 5 rolling-origin folds, 90-day test windows, an expanding training window, horizons of
+24h/48h/72h, and MASE scaled to persistence (**1.00 ties it, below 1.00 beats it**). Data runs
+through 2026-01-18. Regenerate with:
 
-Run `python -m scripts.compare_baselines` to reproduce. Honest **time** split
-(train before 2025-03-25, test after), predicting tomorrow's IQA:
+```bash
+.venv/bin/python -m scripts.run_backtest
+```
 
-| Approach | MAE | RMSE |
+### The regression scoreboard (h24, mean MASE across 5 folds)
+
+| model | mean MASE | folds beaten |
 |---|---|---|
-| **persistence** — "tomorrow = today" | **7.383** | 14.737 |
-| RF as currently built | 8.064 | 16.844 |
-| RF with today's IQA restored | 8.019 | 16.807 |
-| seasonal-naive — "same weekday last week" | 11.238 | 22.211 |
+| `huber_level` / `huber_delta` | **0.899** | **5/5** |
+| `ridge_delta` / `ridge_level` | 0.970 | 4/5 |
+| `rf_level` | 0.971 | 3/5 |
+| `persistence` | 1.000 | — |
+| `hgb_delta` | 1.008 | 3/5 |
+| `climatology` | 1.094 | 1/5 |
+| `seasonal_naive` | 1.484 | 0/5 |
 
-The trained model is **9% worse than assuming tomorrow equals today**. Two things follow:
+Full table, all three horizons: [`docs/RESULTS.md`](docs/RESULTS.md).
 
-- The `mae_va ≈ 4.6` that the training code reports is inflated by roughly **43%**, because
-  `_time_split` produces a station holdout rather than a time holdout (see the pinned defect
-  below). On an honest split the same model scores 8.064.
-- Restoring today's IQA to the feature set moves MAE only 8.064 → 8.019, so that defect is
-  real but is **not** what limits the model. The likely cause is regression to the mean: a tree
-  ensemble shrinks predictions toward the training mean, which is the wrong behaviour on a
-  strongly persistent series. Spec B explores predicting the change from today rather than
-  the level.
+### Why Huber wins
 
-This is a single split, not a rolling-origin backtest; Spec B does that properly. The gap is
-wide enough that more folds are unlikely to reverse it.
+A 2×2 ablation (level vs. delta target, squared vs. Huber loss) shows the Δ-target framing
+contributes **exactly 0.0000** to the win — `huber_level` and `huber_delta` score identically.
+That makes sense: `iqa` is already a feature, so a linear model spans the same hypothesis space
+whether it predicts the level or the change from today. **The entire win is the robust loss.**
+Squared error is dominated by heavy-tailed exceedance days — persistence's RMSE (14.7) is nearly
+double its MAE (7.4) — and Huber behaves linearly beyond its threshold instead of over-weighting
+those outliers. Tree models (`rf_level`, `hgb_delta`) lose because they shrink predictions toward
+the training mean, which is the wrong bias for a series that behaves close to a random walk.
 
-Three defects were found while building the data/training layer and are deliberately **not fixed**
-in Spec A. Each is pinned by a `strict=True` xfail test rather than left silent, so the test suite
-fails loudly the moment one is fixed without updating the test:
+### The alert product: ranking works, the operating point doesn't
 
-- **The "time holdout" is really a station holdout.** `_time_split` slices a frame sorted by
-  `[station_id, date_local]`, so the split separates stations, not time.
-  Pinned by `tests/test_training_split.py::test_time_split_holdout_starts_after_train_ends`.
-- **Prophet and the LSTM flatten 11 interleaved station series into one.** Both see one series
-  where there should be 11 independent per-station series.
-  Pinned by `tests/test_training_split.py::test_series_builder_yields_one_series_per_station`.
-- **Today's IQA is excluded from the feature set.** The target is tomorrow's IQA, but the current
-  day's own value is not a feature, so the model predicts `t+1` from `t-1` backwards. It is
-  effectively a two-step-ahead model reported as one-step, and it discards the single most
-  predictive input available.
-  Pinned by `tests/test_build_features.py::test_current_day_iqa_is_available_as_a_feature`.
+The exceedance classifier is scored against a 5:1 cost ratio (missing a bad-air day costs 5x a
+false alarm). Its ranking has genuine signal — PR-AUC of 0.42–0.52 across folds, a **~7.4x lift**
+over the base rate. But **at an operating point, it does not reliably beat persistence**
+("today was bad, so tomorrow will be too"):
 
-All three are fixed in Spec B.
+| fold | PR-AUC | classifier P / R | persistence P / R |
+|---|---|---|---|
+| 1 | 0.424 | 0.636 / 0.135 | 0.490 / 0.462 |
+| 3 | 0.524 | 0.622 / 0.500 | 0.518 / 0.518 |
+| 4 | 0.474 | 0.489 / 0.228 | 0.554 / 0.554 |
+
+Recall is far too low for a cost ratio meant to favour catching misses. The cause:
+`class_weight="balanced"` inflates predicted probabilities during training, so a threshold fit
+on training predictions (via `choose_threshold`) is far too conservative once applied to test
+data. **This is the top open problem in the project** — the signal exists, but converting it
+into a decision currently loses to the trivial "today was bad" rule. This is reported honestly
+rather than tuned until it looks better.
+
+### Exceedance is violently seasonal
+
+The "mauvais" base rate swings **32x** across the five folds:
+
+| fold | window | exceedances | rate |
+|---|---|---|---|
+| 1 | 2024-10-24 → 2025-01-21 | 52/962 | 5.41% |
+| 2 | 2025-01-22 → 2025-04-21 | 12/985 | 1.22% |
+| 3 | 2025-04-22 → 2025-07-20 | 56/990 | 5.66% |
+| 4 | 2025-07-21 → 2025-10-18 | 101/990 | 10.20% (wildfire season) |
+| 5 | 2025-10-19 → 2026-01-16 | 3/934 | 0.32% |
+
+This means fold-level variance on the classification task is large, and any single train/test
+split on this problem is not trustworthy — which is exactly why the backtest reports a spread of
+folds rather than one number.
+
+### Does weather help? No — and that contradicts this project's own premise
+
+```
+mean PR-AUC   no_weather: 0.4149   with_weather: 0.4136
+weather helps in 1 of 4 scored folds
+lift over base rate: 7.4x either way
+```
+
+Weather and no-weather are essentially tied, and which one wins swings per fold. Spec A's stated
+premise was that weather features would be **"the biggest modelling unlock."** They are not: the
+honest backtest shows no measurable benefit. This result is reported plainly because it
+contradicts an earlier design assumption — a project that publishes a result contradicting its
+own premise is more credible than one that quietly drops it.
+
+### The three Spec A defects are fixed
+
+All three defects pinned by `strict=True` xfail tests in Spec A are now fixed, and the
+current suite (129 tests) has zero xfails:
+
+- **The "time holdout" was really a station holdout.** `_time_split` now splits by date, not by
+  station.
+- **Prophet and the LSTM flattened 11 interleaved station series into one.** Both now train on
+  independent per-station series.
+- **Today's IQA was excluded from the feature set.** It is now included.
+
+One consequence of the fix is visible in `train_rf`: `mae_va` rose from **4.579 to 8.042**
+(+76%) on the same model. That is the correct number, not a regression — the old value was
+measured against a station leak; the new one is measured against a genuine future-date holdout.
 
 ---
 
 ## 12. Roadmap
 
-- **Spec B — honest evaluation.** Fix the two defects above, add persistence/seasonal-naive
-  baselines, a rolling-origin backtest, conformal prediction intervals, and an exceedance
-  classifier (predicting the rare "mauvais" days directly rather than only via a regression
-  threshold).
+- **Spec B — honest evaluation. Complete.** All three Spec A defects fixed, persistence /
+  seasonal-naive / climatology baselines added, a rolling-origin backtest across 5 folds and
+  3 horizons, conformal prediction intervals, an exceedance classifier, and a scoreboard
+  (`scripts/run_backtest.py` → `docs/RESULTS.md`) that regenerates every published number.
+  Deferred out of Spec B:
+  - **Fixing classifier threshold transfer** (top open problem) — `class_weight="balanced"`
+    inflates training-time probabilities, so a threshold fit on train is too conservative at
+    test time and the classifier loses to persistence at its operating point despite a 7.4x
+    ranking lift.
+  - Hyperparameter search for the regression candidates (Huber's threshold, tree depths, etc.)
+    was not tuned — the scoreboard reports defaults.
+  - Per-station retraining for Prophet/LSTM (the series-builder fix makes this possible; it
+    has not been re-run at scale).
+  - Wiring `src/evaluation/conformal.py` into the backtest scoreboard — it is unit-tested but
+    not yet part of `run_backtest.py`'s output.
 - **Spec C — operate it.** Docker Compose, Postgres for prediction logging, Grafana dashboards,
   a Streamlit map of current/forecast IQA by station.
 - **Spec D — productionize it.** Champion/challenger model promotion, Terraform-managed
