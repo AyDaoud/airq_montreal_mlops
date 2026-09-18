@@ -294,6 +294,32 @@ Spec B adds:
 - a rolling-origin backtest
 - honest evaluation before any accuracy number is claimed
 
+### Measured: the current model does not beat persistence
+
+Run `python -m scripts.compare_baselines` to reproduce. Honest **time** split
+(train before 2025-03-25, test after), predicting tomorrow's IQA:
+
+| Approach | MAE | RMSE |
+|---|---|---|
+| **persistence** — "tomorrow = today" | **7.383** | 14.737 |
+| RF as currently built | 8.064 | 16.844 |
+| RF with today's IQA restored | 8.019 | 16.807 |
+| seasonal-naive — "same weekday last week" | 11.238 | 22.211 |
+
+The trained model is **9% worse than assuming tomorrow equals today**. Two things follow:
+
+- The `mae_va ≈ 4.6` that the training code reports is inflated by roughly **43%**, because
+  `_time_split` produces a station holdout rather than a time holdout (see the pinned defect
+  below). On an honest split the same model scores 8.064.
+- Restoring today's IQA to the feature set moves MAE only 8.064 → 8.019, so that defect is
+  real but is **not** what limits the model. The likely cause is regression to the mean: a tree
+  ensemble shrinks predictions toward the training mean, which is the wrong behaviour on a
+  strongly persistent series. Spec B explores predicting the change from today rather than
+  the level.
+
+This is a single split, not a rolling-origin backtest; Spec B does that properly. The gap is
+wide enough that more folds are unlikely to reverse it.
+
 Three defects were found while building the data/training layer and are deliberately **not fixed**
 in Spec A. Each is pinned by a `strict=True` xfail test rather than left silent, so the test suite
 fails loudly the moment one is fixed without updating the test:
