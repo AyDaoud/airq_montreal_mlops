@@ -66,6 +66,21 @@ app = FastAPI(title="AirQ Montreal", version="1.0.0", lifespan=lifespan)
 
 if not getattr(app.state, "_instrumented", False):
     Instrumentator().instrument(app).expose(app, include_in_schema=False)
+
+# ModelGauges needs something to drive it. Registering a scrape-time
+# collector means the numbers on the dashboard are computed when asked
+# for: no background task to die quietly and leave stale values behind.
+# Registered at module level, which runs once per process.
+if not getattr(app.state, "_metrics_collector_registered", False):
+    try:
+        from prometheus_client import REGISTRY as _PROM_REGISTRY
+
+        from src.monitoring.gauges import ModelMetricsCollector
+
+        _PROM_REGISTRY.register(ModelMetricsCollector())
+        app.state._metrics_collector_registered = True
+    except Exception as exc:  # noqa: BLE001 - metrics must not block startup
+        print(f"[warn] could not register model metrics collector: {exc}")
     app.state._instrumented = True
 
 MODEL_NAME = os.getenv("MODEL_NAME", "rf")
