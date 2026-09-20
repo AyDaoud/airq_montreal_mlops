@@ -119,22 +119,33 @@ against a locally-served instance to confirm the shape.
                        │ make bake-model
                        ▼
                  ┌─────────────┐
-                 │  FastAPI     │  /health, /predict
+                 │  FastAPI     │  /health, /predict, /metrics
                  └──────┬──────┘
-                        │ docker build (Dockerfile)
-                        ▼
-                 ┌─────────────┐
-                 │ Docker image │
-                 └──────┬──────┘
-                        │ push
-                        ▼
-                 ┌─────────────┐
-                 │    GHCR      │
-                 └─────────────┘
+                        │
+          ┌─────────────┼──────────────────┐
+          │ every served│prediction        │ docker build (Dockerfile)
+          ▼             │                  ▼
+   ┌─────────────┐      │           ┌─────────────┐
+   │ prediction    │     │ /metrics  │ Docker image │
+   │ + score log   │     │  scraped  └──────┬──────┘
+   └──────┬────────┘     ▼                  │ push
+          ▼        ┌─────────────┐          ▼
+   ┌─────────────┐ │  Prometheus  │   ┌─────────────┐
+   │   SQLite     │ └──────┬──────┘   │    GHCR      │
+   │ monitoring.db│        │          └─────────────┘
+   └──────┬───────┘        │
+          │                │
+          └───────┬────────┘
+                  ▼
+           ┌─────────────┐
+           │   Grafana    │  5 panels: MASE, freshness,
+           └─────────────┘  API health, predictions, scores
 ```
 
 `orchestration/flow.py` is the Prefect flow that ties ingest → build → train/forecast/monitor
-into one daily pipeline.
+into one daily pipeline. Prometheus and Grafana run as userspace tarballs
+(`scripts/dev_stack.sh`) or, for reviewers with Docker, via `docker-compose.yml` — see
+[Observability](#12-observability).
 
 ---
 
@@ -423,7 +434,77 @@ measured against a station leak; the new one is measured against a genuine futur
 
 ---
 
-## 12. Roadmap
+## 12. Observability
+
+### What is observed
+
+Every served prediction is written to SQLite (`data/monitoring.db`). A scoring job joins
+predictions to ground truth as it arrives and computes rolling MASE against persistence — the
+production form of Spec B's headline metric. The dashboard's first panel plots it with a
+reference line at **1.0**: above that line the model is worse than doing nothing.
+
+### Running it — no Docker, no root required
+
+Grafana and Prometheus run as userspace tarballs (`scripts/dev_stack.sh` downloads and extracts
+pinned releases into `.stack/`, gitignored, ~230 MB on first run; re-runs skip what is already
+downloaded). This exists because the development machine has neither Docker nor `sudo`.
+
+```bash
+./scripts/dev_stack.sh start
+.venv/bin/python -m uvicorn src.serving.app:app --port 8000
+# Grafana    http://localhost:3300   (admin / admin)
+# Prometheus http://localhost:9090
+./scripts/dev_stack.sh stop
+```
+
+Grafana listens on port **3300**, not the usual 3000 — port 3000 on the development machine is
+occupied by an unrelated `next-server`. Set `GRAFANA_PORT` to override.
+
+### The Docker alternative
+
+`docker-compose.yml` runs the same stack in containers (`docker compose up`, Grafana published on
+`3300:3000` to match the local stack and dodge the same occupied port). **This path is
+CI-verified rather than run locally** — Docker is not installed on the development machine, so
+the compose job in `.github/workflows/ci.yml` is the only place it has actually come up. The
+dashboard panels themselves were developed and checked against the local, non-Docker stack.
+
+### The five panels
+
+| panel | datasource | purpose |
+|---|---|---|
+| Rolling MASE vs persistence | Prometheus (`airq_mase_7d`/`airq_mase_30d`) | the production form of Spec B's headline metric, with a threshold line at 1.0 |
+| Data freshness (days) | Prometheus (`airq_data_freshness_days`) | age of the newest gold-table row |
+| API health | Prometheus (`http_requests_total`, latency buckets) | request volume and latency |
+| Recent predictions | SQLite (`airq-sqlite`) | raw prediction log |
+| Scoring history (model vs persistence) | SQLite (`airq-sqlite`) | manually-scored rows, model MASE next to persistence's |
+
+There is deliberately no sixth panel for `P(exceedance)`. Spec B measured the exceedance
+classifier's total expected cost at 5:1 against persistence — 787 vs. **581** at h24, 1060 vs.
+**839** at h48, 1056 vs. **941** at h72 — and persistence won at every horizon. Alerting uses the
+persistence rule, so the dashboard shows that rule rather than a probability gauge that would
+look more sophisticated and perform worse. `tests/test_ops_config.py` enforces that no panel
+title mentions an exceedance probability.
+
+### Freshness
+
+The freshness gauge currently reads about **6.9 days**. The gold table's newest row is
+2026-09-14; upstream's historical dump froze at 2026-01-18, and the realtime feed that is
+supposed to fill the gap has not been re-run since. A large number here is the panel doing its
+job, not a bug in it.
+
+### The known gap: the MASE panel is not fed by live traffic yet
+
+The API logs every served prediction with `target_date=None`, because the `/predict` request
+body carries feature rows without saying which day they are for. The scoring job has nothing to
+mature those predictions against, so **the MASE panel is currently populated only by manually
+written scores** (3 rows at the time of writing), not by predictions actually served through the
+API. Freshness, API health, and the prediction-log panel all populate from live traffic
+immediately — only the MASE panel is affected. Wiring a `target_date` through the prediction
+request is Spec D's concern.
+
+---
+
+## 13. Roadmap
 
 - **Spec B — honest evaluation. Complete.** All three Spec A defects fixed, persistence /
   seasonal-naive / climatology baselines added, a rolling-origin backtest across 5 folds and
@@ -442,13 +523,19 @@ measured against a station leak; the new one is measured against a genuine futur
     has not been re-run at scale).
   - Wiring `src/evaluation/conformal.py` into the backtest scoreboard — it is unit-tested but
     not yet part of `run_backtest.py`'s output.
-- **Spec C — operate it.** Docker Compose, Postgres for prediction logging, Grafana dashboards,
-  a Streamlit map of current/forecast IQA by station.
+- **Spec C — operate it. Complete.** Prediction and score logging to SQLite, `/metrics` on the
+  API, Prometheus scraping it, a provisioned Grafana dashboard (5 panels), and a
+  `docker-compose.yml` reviewers with Docker can run, verified in CI. See
+  [Observability](#12-observability). Deferred out of Spec C:
+  - The evidently 0.4→0.7 port, still pinning `numpy<2.1`.
+  - Postgres as the monitoring backend — the `DATABASE_URL` swap is one variable, unexercised.
+  - Wiring `target_date` through the prediction request so the MASE panel populates from live
+    traffic instead of manually written scores.
 - **Spec D — productionize it.** Champion/challenger model promotion, Terraform-managed
   infrastructure, deployment to Cloud Run.
 
 ---
 
-## 13. License
+## 14. License
 
 [MIT](LICENSE) © 2026 Ayman Daoud
