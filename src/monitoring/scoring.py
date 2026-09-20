@@ -7,7 +7,7 @@ persistence, matching Spec B: 1.00 ties "tomorrow = today", below beats it.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 import pandas as pd
 
@@ -27,7 +27,9 @@ def score_window(
     Returns ``None`` when nothing has matured, rather than writing a row
     computed from no data.
     """
-    now = now or datetime.utcnow()
+    # naive UTC: target_date comparisons below use naive Timestamps, so an
+    # aware datetime here would raise on comparison.
+    now = now or datetime.now(timezone.utc).replace(tzinfo=None)
     cutoff = pd.Timestamp(now) - pd.Timedelta(days=window_days)
 
     rows = [

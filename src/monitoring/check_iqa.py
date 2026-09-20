@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import argparse
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Tuple
 
@@ -113,7 +113,7 @@ def _build_evidently_report(
         reference_data=reference, current_data=current, column_mapping=column_mapping
     )
 
-    ts = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     html_path = out_dir / f"iqa_monitoring_{ts}.html"
     report.save_html(html_path)
 
