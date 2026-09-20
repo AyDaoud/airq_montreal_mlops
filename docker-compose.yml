@@ -1,0 +1,45 @@
+# The same stack as scripts/dev_stack.sh, for reviewers who have Docker.
+# CI verifies it comes up healthy; the dashboard panels were developed and
+# checked against the local (non-Docker) stack.
+services:
+  api:
+    build: .
+    ports: ["8000:8000"]
+    environment:
+      DATABASE_URL: sqlite:////app/data/monitoring.db
+      MODEL_NAME: rf
+    volumes:
+      - airq-data:/app/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    ports: ["9090:9090"]
+    volumes:
+      - ./ops/prometheus/prometheus-compose.yml:/etc/prometheus/prometheus.yml:ro
+    depends_on:
+      api:
+        condition: service_healthy
+
+  grafana:
+    image: grafana/grafana-oss:11.3.0
+    ports: ["3300:3000"]
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_INSTALL_PLUGINS: frser-sqlite-datasource
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      AIRQ_DB_PATH: /var/lib/airq/monitoring.db
+      AIRQ_DASHBOARD_PATH: /etc/grafana/dashboards
+    volumes:
+      - ./ops/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./ops/grafana/dashboards:/etc/grafana/dashboards:ro
+      - airq-data:/var/lib/airq:ro
+    depends_on: [prometheus]
+
+volumes:
+  airq-data:

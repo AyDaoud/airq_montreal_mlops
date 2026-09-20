@@ -84,3 +84,49 @@ jobs:
       - name: Clean up
         if: always()
         run: docker rm -f airq || true
+
+  compose:
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Bake the serving model
+        run: |
+          pip install -r requirements-serving.txt
+          python -m scripts.bake_serving_model
+
+      - name: Bring the stack up
+        run: docker compose up -d --build
+
+      - name: Wait for the API
+        run: |
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:8000/health > /dev/null; then break; fi
+            sleep 3
+          done
+          curl -sf http://localhost:8000/health | grep -q '"ok"'
+
+      - name: Prometheus has a live scrape target
+        run: |
+          sleep 25
+          curl -sf http://localhost:9090/api/v1/targets \
+            | python -c "import json,sys; ts=json.load(sys.stdin)['data']['activeTargets']; assert any(t['health']=='up' for t in ts), ts; print('scrape target up')"
+
+      - name: Grafana is healthy and provisioned the dashboard
+        run: |
+          curl -sf http://localhost:3300/api/health | grep -q ok
+          curl -sf -u admin:admin "http://localhost:3300/api/search?query=AirQ" \
+            | python -c "import json,sys; d=json.load(sys.stdin); assert d, 'dashboard not provisioned'; print('dashboard:', d[0]['title'])"
+
+      - name: Logs on failure
+        if: failure()
+        run: docker compose logs --tail 80
+
+      - name: Tear down
+        if: always()
+        run: docker compose down -v

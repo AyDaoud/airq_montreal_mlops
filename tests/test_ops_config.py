@@ -90,3 +90,40 @@ def test_prometheus_panels_query_metrics_that_actually_exist():
             if expr and not any(metric in expr for metric in known):
                 unknown.append(f"{panel['title']!r}: {expr}")
     assert unknown == [], f"panels query unknown metrics: {unknown}"
+
+
+COMPOSE_PROMETHEUS = Path("ops/prometheus/prometheus-compose.yml")
+COMPOSE = Path("docker-compose.yml")
+
+
+def test_compose_prometheus_targets_the_service_not_localhost():
+    """Inside the compose network, localhost is the Prometheus container
+    itself - it would scrape nothing and report success."""
+    config = yaml.safe_load(COMPOSE_PROMETHEUS.read_text())
+    targets = [
+        t
+        for job in config["scrape_configs"]
+        for sc in job["static_configs"]
+        for t in sc["targets"]
+    ]
+    assert any("api:" in t for t in targets), targets
+    assert not any("localhost" in t for t in targets), targets
+
+
+def test_compose_mounts_the_compose_specific_prometheus_config():
+    compose = yaml.safe_load(COMPOSE.read_text())
+    mounts = compose["services"]["prometheus"]["volumes"]
+    assert any("prometheus-compose.yml" in m for m in mounts), mounts
+
+
+def test_compose_publishes_grafana_on_3300():
+    """Port 3000 is occupied on the development machine."""
+    compose = yaml.safe_load(COMPOSE.read_text())
+    assert "3300:3000" in compose["services"]["grafana"]["ports"]
+
+
+def test_compose_sets_both_provisioning_variables():
+    compose = yaml.safe_load(COMPOSE.read_text())
+    env = compose["services"]["grafana"]["environment"]
+    assert "AIRQ_DB_PATH" in env
+    assert "AIRQ_DASHBOARD_PATH" in env
