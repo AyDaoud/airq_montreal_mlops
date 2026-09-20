@@ -44,15 +44,15 @@ This aligns with the MLOps Zoomcamp project rubric: experiment tracking, model r
 ```bash
 git clone git@github.com:AyDaoud/airq_montreal_mlops.git
 cd airq_montreal_mlops
-make setup      # create .venv and install
+make setup      # create .venv, install, and install the git hooks
 make data       # ingest sources and build the gold table (~5 min)
-make test       # 76 tests, fully offline
+make test       # 129 tests, fully offline
 make run-api    # serve on http://localhost:8000
 ```
 
 `make data` runs `src.data.cli ingest` (stations, historical + realtime IQA, Open-Meteo weather)
 followed by `src.data.cli build` (bronze → silver → gold, contract-validated). It needs network
-access; `make test` does not — the 76 tests run entirely offline against fixtures.
+access; `make test` does not — the 129 tests run entirely offline against fixtures.
 
 To serve predictions you need a baked model (`make bake-model` writes `artifacts/rf/model.pkl`
 and `artifacts/rf/feature_names.json`), then `make run-api`. The API takes rows keyed by exact
