@@ -341,12 +341,40 @@ over the base rate. But **at an operating point, it does not reliably beat persi
 | 3 | 0.524 | 0.622 / 0.500 | 0.518 / 0.518 |
 | 4 | 0.474 | 0.489 / 0.228 | 0.554 / 0.554 |
 
-Recall is far too low for a cost ratio meant to favour catching misses. The cause:
+Recall is far too low for a cost ratio meant to favour catching misses. The mechanism:
 `class_weight="balanced"` inflates predicted probabilities during training, so a threshold fit
-on training predictions (via `choose_threshold`) is far too conservative once applied to test
-data. **This is the top open problem in the project** — the signal exists, but converting it
-into a decision currently loses to the trivial "today was bad" rule. This is reported honestly
-rather than tuned until it looks better.
+on training predictions is far too conservative once applied to test data.
+
+#### That diagnosis was right, and fixing it did not help
+
+Four alerting rules were compared on total expected cost at 5:1, summed across folds.
+Reproduce with `python -m scripts.compare_alert_rules`. **Lower is better:**
+
+| horizon | **persistence** | classifier @0.5 | classifier, calibrated | Huber forecast, thresholded |
+|---|---|---|---|---|
+| h24 | **581** | 787 | 706 | 650 |
+| h48 | **839** | 1060 | 1030 | 1036 |
+| h72 | **941** | 1056 | 1030 | 1030 |
+
+Holding out the last fifth of training *by date* to pick the threshold, and isotonic
+probability calibration on that slice, both helped relative to the naive threshold — and
+both still lose. So does deriving the alert by thresholding the Huber forecast, the one
+model that *does* beat persistence on the numeric task.
+
+**Conclusion: machine learning does not improve this alert. Use the persistence rule.**
+Flag tomorrow when today's IQA already exceeds 50 — precision ≈0.52, recall ≈0.51, no model
+required. It is also trivially explainable to the public-health audience the alert is for.
+
+Why persistence is so strong here while losing the regression: exceedance episodes are
+*clustered* — wildfire smoke and winter inversions last several days — so "today was bad"
+captures the dominant structure directly. The classifier's ranking does contain extra signal
+(7.4× lift), but not enough to convert into better decisions at any threshold tried. The
+regression is a different task: it is rewarded for being close on the ~95% of ordinary days,
+which is where Huber's robustness pays.
+
+**This is a negative result, published rather than buried.** Spec B was explicitly permitted
+to conclude a problem was not learnable, and for the alert task it is not — at least not by
+these methods at this horizon.
 
 ### Exceedance is violently seasonal
 
@@ -402,10 +430,12 @@ measured against a station leak; the new one is measured against a genuine futur
   3 horizons, conformal prediction intervals, an exceedance classifier, and a scoreboard
   (`scripts/run_backtest.py` → `docs/RESULTS.md`) that regenerates every published number.
   Deferred out of Spec B:
-  - **Fixing classifier threshold transfer** (top open problem) — `class_weight="balanced"`
-    inflates training-time probabilities, so a threshold fit on train is too conservative at
-    test time and the classifier loses to persistence at its operating point despite a 7.4x
-    ranking lift.
+  - **The alert task is settled, negatively.** Threshold transfer was diagnosed and fixed
+    (date-held-out calibration slice + isotonic calibration); it still loses to persistence
+    at every horizon, as does thresholding the Huber forecast. See
+    `scripts/compare_alert_rules.py`. Beating it would need a different framing — episode
+    onset detection, or exogenous data the RSQA feed does not carry (fire-smoke transport
+    forecasts, for instance) — not threshold tuning.
   - Hyperparameter search for the regression candidates (Huber's threshold, tree depths, etc.)
     was not tuned — the scoreboard reports defaults.
   - Per-station retraining for Prophet/LSTM (the series-builder fix makes this possible; it
