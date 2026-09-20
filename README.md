@@ -44,7 +44,7 @@ This aligns with the MLOps Zoomcamp project rubric: experiment tracking, model r
 ```bash
 git clone git@github.com:AyDaoud/airq_montreal_mlops.git
 cd airq_montreal_mlops
-make setup      # create .venv and install
+make setup      # create .venv, install, and install the git hooks
 make data       # ingest sources and build the gold table (~5 min)
 make test       # 129 tests, fully offline
 make run-api    # serve on http://localhost:8000

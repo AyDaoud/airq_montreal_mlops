@@ -56,5 +56,7 @@ def test_py_is_defined_before_any_recipe_uses_it():
 def test_quickstart_targets_all_exist():
     """Every target the README quickstart names must be real."""
     text = Path("makefile").read_text()
-    for target in ("setup", "data", "test", "run-api", "bake-model"):
-        assert re.search(rf"^{target}:", text, re.MULTILINE), f"missing target: {target}"
+    for target in ("setup", "data", "test", "run-api", "bake-model", "hooks"):
+        assert re.search(
+            rf"^{target}:", text, re.MULTILINE
+        ), f"missing target: {target}"

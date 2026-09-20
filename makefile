@@ -1,4 +1,4 @@
-.PHONY: install lint format test run-api run-flow bake-model build-docker build-docker-train run-docker setup ingest build-data data
+.PHONY: install lint format test run-api run-flow bake-model build-docker build-docker-train run-docker setup ingest build-data data hooks
 
 # All recipes run through the venv interpreter. Bare `pytest`/`flake8`/
 # `uvicorn` are not on PATH after `make setup`, which silently broke the
@@ -42,6 +42,13 @@ setup:
 	python3 -m venv .venv
 	$(PY) -m pip install --upgrade pip
 	$(PY) -m pip install -r requirements.txt
+	$(MAKE) hooks
+
+# .pre-commit-config.yaml has existed since the first commit but nothing ever
+# installed it, so black and flake8 never ran locally and formatting errors
+# reached CI instead.
+hooks:
+	$(PY) -m pre_commit install
 
 ingest:
 	$(PY) -m src.data.cli ingest
