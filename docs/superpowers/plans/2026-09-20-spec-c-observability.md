@@ -6,7 +6,7 @@
 
 **Architecture:** A SQLAlchemy prediction log behind a `DATABASE_URL` (SQLite now, Postgres by changing one variable). A nightly scoring job joins predictions to ground truth and writes rolling MASE. The API exposes operational metrics plus three model-quality gauges on `/metrics`. Grafana reads Prometheus for time-series and SQLite for per-station detail. Both run as userspace binaries — no Docker, no sudo.
 
-**Tech Stack:** Python 3.12, SQLAlchemy 2.x, prometheus-fastapi-instrumentator 8.1, prometheus-client, Grafana 11.3, Prometheus 2.54, `frser-sqlite-datasource` 4.0.6 (community-signed).
+**Tech Stack:** Python 3.12, SQLAlchemy 2.x, prometheus-fastapi-instrumentator 7.1, prometheus-client, Grafana 11.3, Prometheus 2.54, `frser-sqlite-datasource` 4.0.6 (community-signed).
 
 **Reference spec:** `docs/superpowers/specs/2026-09-20-spec-c-observability-design.md`
 
@@ -59,8 +59,17 @@
 
 ```
 sqlalchemy==2.0.36
-prometheus-fastapi-instrumentator==8.1.0
+prometheus-fastapi-instrumentator==7.1.0
 ```
+
+> **Why 7.1.0 and not the latest (8.1.0).** `prometheus-fastapi-instrumentator` 8.x
+> declares `starlette>=1.0.0,<2.0.0`, while the pinned `fastapi==0.115.0` declares
+> `starlette<0.39.0,>=0.37.2`. Those ranges do not overlap, so 8.1.0 makes the
+> requirement set unsatisfiable. 7.1.0 declares `starlette<1.0.0,>=0.30.0`, which the
+> installed 0.38.6 satisfies. Pinning the new dependency to fit the working stack is the
+> smaller change; upgrading FastAPI to a starlette-1.x line would touch the serving app,
+> which passes 133 tests today. Verified by `pip install --dry-run`: the full set resolves
+> with SQLAlchemy 2.0.36, instrumentator 7.1.0 and prometheus_client 0.26.0.
 
 Then:
 ```bash

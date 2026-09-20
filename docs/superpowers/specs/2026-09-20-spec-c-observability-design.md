@@ -30,7 +30,7 @@ A third finding shapes a panel: the gold table silently carried a **239-day gap*
 | Grafana 11.3 tarball, 127 MB — HTTP 200 | Runs from `~/`, no install |
 | Prometheus 2.54 tarball, 101 MB — HTTP 200 | Runs from `~/`, no install |
 | `frser-sqlite-datasource` v4.0.6, **community-signed** | Usable without the unsigned-plugin escape hatch |
-| `prometheus-fastapi-instrumentator` 8.1.0 | Available |
+| `prometheus-fastapi-instrumentator` 7.1.0 (8.x conflicts with fastapi 0.115 via starlette) | Available |
 
 Running Grafana locally is not merely a workaround — it is **better than the Docker path**, because the dashboard can be opened and iterated on rather than written blind as JSON. Spec A's Docker tasks were CI-verified only; a provisioned dashboard verified the same way would be unexamined.
 
