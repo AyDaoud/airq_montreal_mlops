@@ -8,6 +8,9 @@ from sklearn.metrics import mean_squared_error
 from src.features.build_features import build_features_daily_iqa
 import numpy as np
 
+from src.models.series import station_series as _station_series  # noqa: F401
+from src.models.series import station_series_map as _station_series_map  # noqa: F401
+
 # Prophet typed against np.float_ etc.; provide aliases when missing (NumPy 2.x)
 if not hasattr(np, "float_"):
     np.float_ = np.float64
@@ -29,9 +32,15 @@ def _daily_df():
 
 
 def _time_split(df, ratio=0.2):
-    n = len(df)
-    k = int(n * (1 - ratio))
-    return df.iloc[:k], df.iloc[k:]
+    """Split on a date boundary.
+
+    The previous implementation sliced by row index on a frame sorted by
+    [station_id, date_local], which produced a station holdout and inflated
+    reported validation scores by roughly 43%.
+    """
+    from src.evaluation.splits import time_split
+
+    return time_split(df, test_fraction=ratio)
 
 
 def _metrics(y_true, y_pred):

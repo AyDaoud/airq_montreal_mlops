@@ -46,11 +46,6 @@ def test_daily_df_is_sorted_by_station_then_date(tmp_path, monkeypatch):
     assert out["station_id"].tolist() == [3, 3, 6, 6]
 
 
-@pytest.mark.xfail(
-    reason="Spec B: _time_split slices a frame sorted by [station_id, date_local], "
-    "so the holdout is the last stations, not the last dates.",
-    strict=True,
-)
 def test_time_split_holdout_starts_after_train_ends():
     df = pd.DataFrame(
         {
@@ -66,12 +61,6 @@ def test_time_split_holdout_starts_after_train_ends():
     assert train["date_local"].max() <= valid["date_local"].min()
 
 
-@pytest.mark.xfail(
-    reason="Spec B: train_prophet and train_lstm flatten 11 interleaved station "
-    "series into one, so Prophet sees 11 y values per ds and the LSTM slides "
-    "its window across station boundaries.",
-    strict=True,
-)
 def test_series_builder_yields_one_series_per_station():
     """Spec B should expose a per-station series accessor."""
     assert hasattr(td, "_station_series"), "no per-station series accessor exists"
