@@ -1,0 +1,15 @@
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    uid: airq-prometheus
+    type: prometheus
+    access: proxy
+    url: http://localhost:9090
+    isDefault: true
+
+  - name: AirQ SQLite
+    uid: airq-sqlite
+    type: frser-sqlite-datasource
+    jsonData:
+      path: ${AIRQ_DB_PATH}

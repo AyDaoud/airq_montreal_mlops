@@ -1,0 +1,13 @@
+apiVersion: 1
+
+providers:
+  - name: airq
+    orgId: 1
+    folder: AirQ
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 10
+    allowUiUpdates: true
+    options:
+      path: ${AIRQ_DASHBOARD_PATH}
+      foldersFromFilesStructure: false

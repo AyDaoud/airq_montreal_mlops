@@ -1,0 +1,113 @@
+{
+  "title": "AirQ Montréal",
+  "uid": "airq-main",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "1m",
+  "time": { "from": "now-30d", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Rolling MASE vs persistence",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "airq-prometheus" },
+      "gridPos": { "h": 9, "w": 16, "x": 0, "y": 0 },
+      "description": "1.0 ties 'tomorrow = today'. Above 1.0 the model is worse than doing nothing. Spec B measured 0.899 at h24 in backtest.",
+      "targets": [
+        { "expr": "airq_mase_7d", "legendFormat": "7-day", "refId": "A" },
+        { "expr": "airq_mase_30d", "legendFormat": "30-day", "refId": "B" }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": { "drawStyle": "line", "lineWidth": 2 },
+          "min": 0.5,
+          "max": 1.5,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 1.0 }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 2,
+      "title": "Data freshness (days)",
+      "type": "stat",
+      "datasource": { "type": "prometheus", "uid": "airq-prometheus" },
+      "gridPos": { "h": 9, "w": 8, "x": 16, "y": 0 },
+      "description": "Days since the newest ground-truth row. Red above 2. The upstream historical dump froze at 2026-01-18, so a large value here is the panel working, not failing.",
+      "targets": [{ "expr": "airq_data_freshness_days", "refId": "A" }],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 2 }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 3,
+      "title": "API health",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "airq-prometheus" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 9 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[5m])) by (le))",
+          "legendFormat": "p95 latency (s)",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(rate(http_requests_total[5m]))",
+          "legendFormat": "requests/s",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": { "defaults": {}, "overrides": [] }
+    },
+    {
+      "id": 4,
+      "title": "Recent predictions",
+      "type": "table",
+      "datasource": { "type": "frser-sqlite-datasource", "uid": "airq-sqlite" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 9 },
+      "targets": [
+        {
+          "queryType": "table",
+          "rawQueryText": "SELECT served_at, station_id, target_date, ROUND(prediction, 2) AS prediction, model_name FROM predictions ORDER BY id DESC LIMIT 100",
+          "queryText": "SELECT served_at, station_id, target_date, ROUND(prediction, 2) AS prediction, model_name FROM predictions ORDER BY id DESC LIMIT 100",
+          "timeColumns": [],
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": { "defaults": {}, "overrides": [] }
+    },
+    {
+      "id": 5,
+      "title": "Scoring history (model vs persistence)",
+      "type": "table",
+      "datasource": { "type": "frser-sqlite-datasource", "uid": "airq-sqlite" },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 17 },
+      "description": "Alerting uses the persistence rule: flag tomorrow when today's IQA already exceeds 50. Spec B measured the ML classifier as worse than that rule at every horizon (cost 787 vs 581 at h24), so the dashboard shows the rule.",
+      "targets": [
+        {
+          "queryType": "table",
+          "rawQueryText": "SELECT scored_at, window_days, n, ROUND(mae_model, 3) AS mae_model, ROUND(mae_persistence, 3) AS mae_persistence, ROUND(mase, 3) AS mase FROM scores ORDER BY scored_at DESC LIMIT 50",
+          "queryText": "SELECT scored_at, window_days, n, ROUND(mae_model, 3) AS mae_model, ROUND(mae_persistence, 3) AS mae_persistence, ROUND(mase, 3) AS mase FROM scores ORDER BY scored_at DESC LIMIT 50",
+          "timeColumns": [],
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": { "defaults": {}, "overrides": [] }
+    }
+  ]
+}

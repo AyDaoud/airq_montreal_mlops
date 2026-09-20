@@ -18,3 +18,5 @@ mlflow.db
 .vscode/
 *.etag
 *.part
+
+.stack/
