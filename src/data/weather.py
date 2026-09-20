@@ -103,7 +103,9 @@ def ingest_weather_archive(
     stations = pd.read_parquet(stations_path)
     reporting = stations[stations["station_id"].isin(KNOWN_STATION_IDS)]
     cells = sorted(reporting["cell_id"].unique())
-    end = end or (pd.Timestamp.utcnow() - pd.Timedelta(days=3)).strftime("%Y-%m-%d")
+    end = end or (pd.Timestamp.now(tz="UTC") - pd.Timedelta(days=3)).strftime(
+        "%Y-%m-%d"
+    )
 
     frames = []
     for cell_id in cells:
