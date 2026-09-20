@@ -15,31 +15,17 @@ if not hasattr(np, "int_"):
     np.int_ = np.int64
 
 
+GOLD_PATH = Path("data/gold/daily_station_iqa.parquet")
+
+
 def _daily_df():
-    paths = [
-        Path("data/interim/iqa_daily_2022_2024.parquet"),
-        Path("data/interim/iqa_daily_2025_2027.parquet"),
-    ]
-    frames = [pd.read_parquet(p) for p in paths if p.exists()]
-    if not frames:
-        raise FileNotFoundError("No daily IQA parquet found.")
-    df = pd.concat(frames, ignore_index=True)
-
-    if "datetime" not in df.columns:
-        for c in ["date", "timestamp", "Date"]:
-            if c in df.columns:
-                df = df.rename(columns={c: "datetime"})
-                break
-    if "value" not in df.columns:
-        for c in ["iqa", "Indice", "aqi", "valeur"]:
-            if c in df.columns:
-                df = df.rename(columns={c: "value"})
-                break
-
-    df["datetime"] = pd.to_datetime(df["datetime"], utc=True, errors="coerce")
-    df["value"] = pd.to_numeric(df["value"], errors="coerce")
-    df = df.dropna(subset=["datetime", "value"]).sort_values("datetime")
-    return df
+    """Load the contract-validated gold daily table."""
+    if not GOLD_PATH.exists():
+        raise FileNotFoundError(
+            f"{GOLD_PATH} not found. Build it with: python -m src.data.cli all"
+        )
+    df = pd.read_parquet(GOLD_PATH)
+    return df.sort_values(["station_id", "date_local"]).reset_index(drop=True)
 
 
 def _time_split(df, ratio=0.2):
@@ -109,11 +95,9 @@ def train_prophet():
         return pd.concat(preds, ignore_index=True).to_numpy()
 
     # Load daily data and coerce columns
-    df = _daily_df()[["datetime", "value"]].copy()
-    df["ds"] = pd.to_datetime(df["datetime"], utc=True, errors="coerce").dt.tz_localize(
-        None
-    )
-    df["y"] = pd.to_numeric(df["value"], errors="coerce")
+    df = _daily_df()[["date_local", "iqa"]].copy()
+    df["ds"] = pd.to_datetime(df["date_local"], errors="coerce")
+    df["y"] = pd.to_numeric(df["iqa"], errors="coerce")
     df = df.dropna(subset=["ds", "y"]).sort_values("ds")[["ds", "y"]]
 
     # Split train and validation (20 % holdout)
@@ -154,8 +138,8 @@ def train_lstm(seq_len=30, epochs=10, lr=1e-3, hidden=64, batch_size=64):
 
     torch.set_num_threads(1)
 
-    df = _daily_df()[["datetime", "value"]].copy()
-    s = df["value"].astype(float).values
+    df = _daily_df()[["date_local", "iqa"]].copy()
+    s = df["iqa"].astype(float).values
     mu, sigma = float(np.mean(s)), float(np.std(s) + 1e-8)
     z = (s - mu) / sigma
 

@@ -1,7 +1,6 @@
 # src/features/build_features.py
 from __future__ import annotations
 import pandas as pd
-import re
 
 
 def _choose_station_key(df: pd.DataFrame) -> str:
@@ -107,78 +106,64 @@ def build_features(
     return x, features
 
 
-def build_features_daily_iqa(df_daily: pd.DataFrame, lags=(1, 2, 3, 7, 14)):
+DAILY_LAGS = (1, 2, 3, 7, 14)
+
+_NON_FEATURE_COLUMNS = {
+    "station_id",
+    "date_local",
+    "iqa",
+    "driving_pollutant",
+    "name",
+    "borough",
+    "cell_id",
+    "source",
+    "latitude",
+    "longitude",
+    "target_iqa_h24",
+    "target_iqa_h48",
+    "target_exceed_h24",
+    "target_exceed_h48",
+    "target",
+}
+
+_NON_FEATURE_PREFIXES = ("sub_",)
+
+
+def build_features_daily_iqa(df_daily: pd.DataFrame, lags=DAILY_LAGS):
+    """Build daily features from the gold table.
+
+    The gold table is contract-validated upstream, so this function does no
+    column guessing: it requires ``station_id``, ``date_local`` and ``iqa``
+    and raises if any is absent.
     """
-    Robust daily IQA features:
-    - auto-detects date & value columns
-    - auto-chooses station key
-    """
-    x = df_daily.copy()
+    required = {"station_id", "date_local", "iqa"}
+    missing = required - set(df_daily.columns)
+    if missing:
+        raise ValueError(
+            f"Gold frame is missing required columns {sorted(missing)}. "
+            "Run 'python -m src.data.cli build' first."
+        )
 
-    # date -> datetime
-    for cand in [
-        "datetime",
-        "date",
-        "Date",
-        "DATE",
-        "date_heure",
-        "Date_Heure",
-        "jour",
-        "Jour",
-        "JOUR",
-    ]:
-        if cand in x.columns:
-            x = x.rename(columns={cand: "datetime"})
-            break
-    x["datetime"] = pd.to_datetime(x["datetime"], utc=True, errors="coerce")
-    x = x.dropna(subset=["datetime"])
+    x = df_daily.copy().sort_values(["station_id", "date_local"])
 
-    # value -> IQA
-    value_candidates = [
-        "value",
-        "iqa",
-        "IQA",
-        "indice",
-        "Indice",
-        "iqa_value",
-        "valeur_iqa",
-        "Valeur",
-        "valeur",
-    ]
-    val_col = next((c for c in value_candidates if c in x.columns), None)
-    if val_col is None:
-        fuzzy = [c for c in x.columns if re.search(r"(iqa|indice)", str(c), re.I)]
-        if len(fuzzy) == 1:
-            val_col = fuzzy[0]
-    if val_col is None:
-        numeric_cols = [c for c in x.columns if pd.api.types.is_numeric_dtype(x[c])]
-        if len(numeric_cols) >= 1:
-            val_col = numeric_cols[0]
-    if val_col is None:
-        raise ValueError(f"No IQA/value-like column found. Columns: {list(x.columns)}")
-
-    if val_col != "value":
-        x = x.rename(columns={val_col: "value"})
-
-    gkey = _choose_station_key(x)
-    x = x.sort_values([gkey, "datetime"])
-
+    grouped = x.groupby("station_id")["iqa"]
     for lag in lags:
-        x[f"lag_{lag}"] = x.groupby(gkey)["value"].shift(lag)
-    x["roll_7"] = x.groupby(gkey)["value"].transform(
-        lambda s: s.shift(1).rolling(7).mean()
-    )
+        x[f"lag_{lag}"] = grouped.shift(lag)
+    x["roll_7"] = grouped.transform(lambda s: s.shift(1).rolling(7).mean())
 
-    x["dow"] = x["datetime"].dt.dayofweek
-    x["month"] = x["datetime"].dt.month
-    x["target"] = x.groupby(gkey)["value"].shift(-1)
-    x["value"] = pd.to_numeric(x["value"], errors="coerce")
+    x["dow"] = x["date_local"].dt.dayofweek
+    x["month"] = x["date_local"].dt.month
 
-    x = x.dropna().reset_index(drop=True)
+    # Spec B replaces this with an explicit horizon argument.
+    x["target"] = x.groupby("station_id")["iqa"].shift(-1)
 
-    exclude = {"datetime", "value", "target"}
-    numeric_cols = [
-        c for c in x.columns if c not in exclude and pd.api.types.is_numeric_dtype(x[c])
+    feature_columns = [
+        c
+        for c in x.columns
+        if c not in _NON_FEATURE_COLUMNS
+        and not c.startswith(_NON_FEATURE_PREFIXES)
+        and pd.api.types.is_numeric_dtype(x[c])
     ]
-    feats = numeric_cols
-    return x, feats
+
+    x = x.dropna(subset=feature_columns + ["target"]).reset_index(drop=True)
+    return x, feature_columns

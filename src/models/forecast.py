@@ -495,7 +495,8 @@ def main():
     if args.freq == "H" and args.pollutant:
         if "pollutant" not in df.columns:
             raise KeyError(
-                "Hourly table has no 'pollutant'. Provide --pollutant-col if your data is long format."
+                "Hourly table has no 'pollutant'. Provide --pollutant-col if your "
+                "data is long format."
             )
         want = _normalize_pollutant_name(args.pollutant)
         df = df[df["pollutant"].astype(str).map(_normalize_pollutant_name) == want]

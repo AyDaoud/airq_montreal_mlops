@@ -7,7 +7,7 @@ __pycache__/
 *.pyc
 
 # Data and artifacts (keep repo light)
-data/
+/data/
 artifacts/*
 !artifacts/.gitkeep
 mlruns/
@@ -16,3 +16,5 @@ mlflow.db
 # OS/editor stuff
 .DS_Store
 .vscode/
+*.etag
+*.part

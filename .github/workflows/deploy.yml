@@ -6,6 +6,8 @@ on:
     paths:
       - "src/**"
       - "Dockerfile"
+      - "requirements-serving.txt"
+      - "scripts/**"
       - ".github/workflows/deploy.yml"
 
 env:
@@ -36,10 +38,21 @@ jobs:
           IMAGE_ID=${GITHUB_REPOSITORY_OWNER,,}/${IMAGE_NAME}
           echo "IMAGE_ID=$IMAGE_ID" >> $GITHUB_ENV
 
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Bake the serving model
+        run: |
+          pip install -r requirements-serving.txt
+          python -m scripts.bake_serving_model
+
       - name: Build and push Docker image
         uses: docker/build-push-action@v6
         with:
           context: .
           file: ./Dockerfile
           push: true
-          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_ID }}:latest
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_ID }}:latest
+            ${{ env.REGISTRY }}/${{ env.IMAGE_ID }}:${{ github.sha }}

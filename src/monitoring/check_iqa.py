@@ -18,7 +18,7 @@ from evidently.report import Report
 from src.models.training_daily import _daily_df
 from src.monitoring.metrics import regression_metrics
 from src.monitoring.metrics import simple_drift_score
-
+from src.tracking import resolve_tracking_uri
 
 # ---------- helpers to load data ----------
 
@@ -152,7 +152,7 @@ def run_monitoring(
     Returns:
         metrics_dict, drift_score, alert_flag, html_report_path
     """
-    tracking_uri = mlflow_uri or "sqlite:///mlflow.db"
+    tracking_uri = resolve_tracking_uri(mlflow_uri)
     mlflow.set_tracking_uri(tracking_uri)
     mlflow.set_experiment(experiment)
 
