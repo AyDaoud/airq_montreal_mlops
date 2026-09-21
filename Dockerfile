@@ -11,6 +11,8 @@ RUN pip install --no-cache-dir --upgrade pip \
 COPY src/__init__.py ./src/
 COPY src/serving ./src/serving
 COPY src/features ./src/features
+# app.py imports src.monitoring.store to log predictions.
+COPY src/monitoring ./src/monitoring
 COPY artifacts/rf ./artifacts/rf
 
 ENV MODEL_PATH=/app/artifacts/rf/model.pkl

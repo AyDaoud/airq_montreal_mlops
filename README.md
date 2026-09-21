@@ -504,6 +504,20 @@ request is Spec D's concern.
 
 ---
 
+### A limitation of the container path
+
+The freshness gauge needs the gold table. The serving image does not ship `data/`, so
+`airq_data_freshness_days` is absent under `docker compose` unless a gold table is mounted
+and `GOLD_PATH` points at it. Under `./scripts/dev_stack.sh` it works directly, which is
+where the ~6.9-day reading above comes from.
+
+The serving image deliberately does **not** contain the training package. `src/monitoring`
+is copied because `app.py` logs predictions through it; `src/models` is not, and a test
+(`tests/test_serving_image_contents.py`) asserts the app imports cleanly from exactly the
+files the Dockerfile copies and that no `src.models` module is pulled in. That test exists
+because Spec C broke the image in precisely this way: `app.py` gained an import the
+Dockerfile did not carry, the image built fine, and the container died on startup.
+
 ## 13. Roadmap
 
 - **Spec B — honest evaluation. Complete.** All three Spec A defects fixed, persistence /

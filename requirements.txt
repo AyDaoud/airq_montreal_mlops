@@ -11,6 +11,8 @@ pandera>=0.20,<0.26
 evidently>=0.4.40,<0.5
 pytest==8.2.1
 pytest-cov==5.0.0
-flake8
-black
-pre-commit
+# Pinned: an unpinned formatter means CI can start failing on a release
+# with no change to the repo. Must match .pre-commit-config.yaml.
+flake8==7.3.0
+black==26.5.1
+pre-commit==4.6.2

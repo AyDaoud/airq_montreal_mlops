@@ -7,11 +7,16 @@ and is the data fresh enough to trust the answer.
 
 from __future__ import annotations
 
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 
 import pandas as pd
 from prometheus_client import REGISTRY, CollectorRegistry, Gauge
+
+# Resolved here rather than imported from src.models.training_daily: the
+# serving image deliberately does not ship the training package.
+DEFAULT_GOLD_PATH = Path(os.getenv("GOLD_PATH", "data/gold/daily_station_iqa.parquet"))
 
 
 def freshness_days(truth: pd.DataFrame, now: datetime | None = None) -> float | None:
@@ -102,9 +107,7 @@ class ModelMetricsCollector:
         self._cached_at = now
         self._freshness = None
         try:
-            from src.models.training_daily import GOLD_PATH
-
-            path = self._gold_path or GOLD_PATH
+            path = self._gold_path or DEFAULT_GOLD_PATH
             if Path(path).exists():
                 self._freshness = freshness_days(
                     pd.read_parquet(path, columns=["date_local"])
