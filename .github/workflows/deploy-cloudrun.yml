@@ -1,0 +1,115 @@
+name: Deploy to Cloud Run
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "Dockerfile"
+      - "requirements-serving.txt"
+      - "scripts/bake_serving_model.py"
+      - ".github/workflows/deploy-cloudrun.yml"
+  workflow_dispatch:
+
+# Deploying two revisions at once would race over traffic migration.
+concurrency:
+  group: deploy-cloudrun
+  cancel-in-progress: false
+
+env:
+  PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+  REGION: us-central1
+  SERVICE: airq-api
+  REPO: airq
+
+permissions:
+  contents: read
+  id-token: write # required to mint the WIF token
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # The image must contain a model. Blocker B4 in this project was a
+      # published image whose artifacts directory was empty: /health passed
+      # and /predict raised FileNotFoundError on the first real request.
+      - name: Bake the serving model
+        run: |
+          pip install -r requirements-serving.txt
+          python -m scripts.bake_serving_model
+
+      - id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SA }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev --quiet
+
+      - name: Build and push, tagged by commit SHA
+        run: |
+          IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPO}/${SERVICE}:${GITHUB_SHA}"
+          echo "IMAGE=$IMAGE" >> "$GITHUB_ENV"
+          docker build -t "$IMAGE" .
+          docker push "$IMAGE"
+          docker image inspect "$IMAGE" --format '{{.Size}}' \
+            | awk '{printf "image size: %d MB\n", $1/1024/1024}'
+
+      # Deploy WITHOUT traffic, so a broken revision never serves anyone.
+      - name: Deploy a revision with no traffic
+        run: |
+          SUFFIX="${GITHUB_SHA::7}"
+          echo "REVISION=${SERVICE}-${SUFFIX}" >> "$GITHUB_ENV"
+          gcloud run deploy "$SERVICE" \
+            --image "$IMAGE" \
+            --region "$REGION" \
+            --revision-suffix "$SUFFIX" \
+            --no-traffic \
+            --min-instances 0 \
+            --max-instances 2 \
+            --cpu 1 --memory 512Mi \
+            --allow-unauthenticated \
+            --quiet
+
+      - name: Smoke test the new revision before it gets traffic
+        run: |
+          URL=$(gcloud run revisions describe "$REVISION" \
+            --region "$REGION" --format 'value(status.url)' 2>/dev/null || true)
+          if [ -z "$URL" ]; then
+            URL=$(gcloud run services describe "$SERVICE" --region "$REGION" \
+              --format 'value(status.url)')
+          fi
+          echo "testing $URL"
+          for i in $(seq 1 20); do
+            curl -sf "$URL/health" > /dev/null && break || sleep 5
+          done
+          curl -sf "$URL/health" | grep -q '"ok"'
+          PAYLOAD=$(python -c "import json;f=json.load(open('artifacts/rf/feature_names.json'));print(json.dumps({'rows':[{k:1.0 for k in f}]}))")
+          RESPONSE=$(curl -sf -X POST "$URL/predict" \
+            -H 'Content-Type: application/json' -d "$PAYLOAD")
+          echo "$RESPONSE"
+          echo "$RESPONSE" | python -c "import json,sys; b=json.load(sys.stdin); assert b['n']==1; assert isinstance(b['preds'][0], float); print('smoke test OK')"
+
+      - name: Migrate traffic to the verified revision
+        run: |
+          gcloud run services update-traffic "$SERVICE" \
+            --region "$REGION" --to-revisions "$REVISION=100" --quiet
+          echo "live at:"
+          gcloud run services describe "$SERVICE" --region "$REGION" \
+            --format 'value(status.url)'
+
+      - name: Report on failure
+        if: failure()
+        run: |
+          echo "deployment failed; traffic was never migrated to $REVISION"
+          gcloud run services describe "$SERVICE" --region "$REGION" \
+            --format 'value(status.traffic)' || true
