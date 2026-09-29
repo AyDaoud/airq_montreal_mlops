@@ -130,3 +130,19 @@ jobs:
       - name: Tear down
         if: always()
         run: docker compose down -v
+
+  terraform:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.8
+      - name: Validate both modules
+        run: |
+          for dir in terraform/00-guardrails terraform/10-app; do
+            echo "--- $dir ---"
+            terraform -chdir=$dir fmt -check -diff
+            terraform -chdir=$dir init -backend=false
+            terraform -chdir=$dir validate
+          done
