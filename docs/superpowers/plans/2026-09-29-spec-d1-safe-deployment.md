@@ -14,7 +14,9 @@
 
 ## Environment notes — read before starting
 
-- Branch `spec-d1/safe-deployment`. Baseline suite: **183 passed, 0 xfailed**.
+- Branch `spec-d1/safe-deployment`, **based on `spec-c/observability`, NOT on `main`.** Baseline suite: **190 passed** once Task 1 lands (183 from Spec C plus 7 new).
+
+> **This bit us once.** The branch was originally cut from `main`, which does not yet contain Spec C. The baseline came out at 133 instead of 183, and more importantly `src/serving/app.py` lacked the `/metrics` endpoint and prediction logging entirely — deploying from it would have shipped the pre-observability app and made all of Spec C invisible in production. Caught because a subagent stashed its work and measured the real baseline instead of trusting the number in its brief. Fixed by `git rebase --onto origin/spec-c/observability origin/main`. **Spec C must be merged before, or together with, this branch.**
 - Always run python as `.venv/bin/python`.
 - **Terraform 1.13.3 is installed. `gcloud` is NOT, and there are NO GCP credentials.**
 - Therefore: `terraform fmt`, `terraform validate` and `terraform init -backend=false` are runnable here. **`terraform plan` and `terraform apply` are NOT** — both need credentials. Do not attempt them; the user applies.
