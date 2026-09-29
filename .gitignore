@@ -20,3 +20,12 @@ mlflow.db
 *.part
 
 .stack/
+
+# Terraform
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+crash.log
+terraform/**/.build/

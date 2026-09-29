@@ -1,0 +1,8 @@
+# Copy to terraform.tfvars and fill in. terraform.tfvars is gitignored.
+# Find these in the Cloud console:
+#   project_id / project_number : the project dashboard
+#   billing_account_id          : Billing > Account management
+project_id         = "airq-montreal-XXXXXX"
+project_number     = "123456789012"
+billing_account_id = "XXXXXX-XXXXXX-XXXXXX"
+alert_email        = "you@example.com"
