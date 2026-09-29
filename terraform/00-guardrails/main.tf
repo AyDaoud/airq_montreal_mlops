@@ -79,10 +79,13 @@ resource "google_storage_bucket" "function_source" {
   depends_on                  = [google_project_service.required]
 }
 
+# archive_file reads the live directory, not git, so __pycache__ left by a
+# local test run would otherwise be shipped inside the deployed function.
 data "archive_file" "killswitch" {
   type        = "zip"
   source_dir  = "${path.module}/function"
   output_path = "${path.module}/.build/killswitch.zip"
+  excludes    = ["__pycache__", "__pycache__/*", "*.pyc"]
 }
 
 resource "google_storage_bucket_object" "killswitch" {
