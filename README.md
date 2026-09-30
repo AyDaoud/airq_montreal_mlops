@@ -518,7 +518,87 @@ files the Dockerfile copies and that no `src.models` module is pulled in. That t
 because Spec C broke the image in precisely this way: `app.py` gained an import the
 Dockerfile did not carry, the image built fine, and the container died on startup.
 
-## 13. Roadmap
+## 13. Deployment
+
+### Live URL
+
+```
+<fill in after the first deploy: terraform -chdir=terraform/10-app output service_url>
+```
+
+### The cost design
+
+The user's constraint: no free GCP credits, and the single most important thing is not
+exceeding **$5**.
+
+| | |
+|---|---|
+| Budget | $5.00 |
+| **Kill switch fires at** | **$1.00 — the 20% threshold** |
+| Burn rate ceiling (`max_instance_count = 2`) | ~$0.19/hour |
+| Overshoot during a ~6-hour billing lag | ~$1.14 |
+| **Worst realistic total** | **≈ $2.15** |
+
+Why $1 and not $5: inside Google Cloud's Always Free tier this project's spend is exactly
+**$0**, so the budget never moves under normal operation. Any movement means a free allowance
+has already been exceeded — the first dollar is the alarm, not the fifth. Firing at 100% would
+spend the whole tolerance before the switch engaged, and the billing lag would then carry the
+total past $5.
+
+**Google offers no true hard spending cap.** Budgets notify; they do not stop spend. The kill
+switch — a Cloud Function that disables billing on the project when notified — is the closest
+achievable substitute, and it still lags by hours because billing data itself lags.
+
+*If you're looking at the kill switch's unit tests: the table of spend values there (e.g.
+`$50.00 -> disable billing: True`) is a **hypothetical spend → decision** table proving the
+switch stays engaged above the trigger — the reassuring case, not a claim about what this
+deployment spends. The switch fires at $1, so those higher values are never reached in
+practice.*
+
+### The five guards
+
+Each is asserted by `tests/test_terraform_guards.py`, and each was verified to fail when
+deliberately tampered with (setting `max_instance_count` to 50, moving the threshold to 1.0,
+and deleting the registry cleanup policy each produced exactly one test failure).
+
+| Setting | Value | Prevents |
+|---|---|---|
+| `min_instance_count` | 0 | Idle billing |
+| `max_instance_count` | 2 | Burn above ~$0.19/hour |
+| region | `us-central1` | Falling outside the free-tier regions (Cloud Run and Cloud Storage free tiers do not apply to `northamerica-northeast1`) |
+| registry cleanup | keep 2 versions | Image storage past the 0.5 GB free tier |
+| kill-switch threshold | 0.2 | Spending the whole tolerance before the switch engages |
+
+### Infrastructure
+
+`terraform/00-guardrails/` (budget, Pub/Sub topic, billing-disable Cloud Function) and
+`terraform/10-app/` (Artifact Registry, Cloud Run service `airq-api`, deploy service account,
+Workload Identity Federation restricted to this repository) — applied in that order, guardrails
+first. `.github/workflows/deploy-cloudrun.yml` authenticates via WIF (no static key), builds a
+SHA-tagged image, deploys it with `--no-traffic`, smoke-tests `/health` **and** `/predict`,
+then migrates traffic.
+
+**This deployment is CI-verified and Terraform-validated but applied by the user.** The
+development machine has Terraform but no `gcloud` CLI and no GCP credentials, so every `.tf`
+file was `fmt`-checked and `validate`d here — never planned, never applied. The first genuine
+proof is the user's own `terraform apply`.
+
+### Grafana and Prometheus are not deployed
+
+Nothing in this deployment puts Grafana or Prometheus on the internet. Prometheus needs to run
+continuously to scrape, which fits badly with a service that scales to zero, and a managed
+Prometheus bills per sample. After deployment you have a public API URL from Cloud Run and a
+**local** dashboard: `./scripts/dev_stack.sh start`, Grafana on `http://localhost:3300` (see
+[Observability](#12-observability)). The dashboard is not hosted anywhere.
+
+### Full operator reference
+
+First-time setup, rolling back, what happens when the kill switch fires, and tearing down —
+see [`docs/RUNBOOK.md`](docs/RUNBOOK.md).
+
+---
+
+## 14. Roadmap
 
 - **Spec B — honest evaluation. Complete.** All three Spec A defects fixed, persistence /
   seasonal-naive / climatology baselines added, a rolling-origin backtest across 5 folds and
@@ -545,11 +625,18 @@ Dockerfile did not carry, the image built fine, and the container died on startu
   - Postgres as the monitoring backend — the `DATABASE_URL` swap is one variable, unexercised.
   - Wiring `target_date` through the prediction request so the MASE panel populates from live
     traffic instead of manually written scores.
-- **Spec D — productionize it.** Champion/challenger model promotion, Terraform-managed
-  infrastructure, deployment to Cloud Run.
+- **Spec D1 — safe deployment. Complete.** Terraform-managed infrastructure (budget guardrails
+  applied first, then the Cloud Run app), a kill switch that disables billing at $1 of spend,
+  five cost guards each enforced by a test, and a GitHub Actions workflow that deploys via
+  Workload Identity Federation with a no-traffic-until-smoke-tested rollout. See
+  [Deployment](#13-deployment). Deferred out of D1:
+  - Champion/challenger model promotion.
+  - Applying the Terraform and observing the service actually running — validated here
+    (`fmt`, `validate`) but never planned or applied on this machine; see
+    `docs/RUNBOOK.md`.
 
 ---
 
-## 14. License
+## 15. License
 
 [MIT](LICENSE) © 2026 Ayman Daoud
